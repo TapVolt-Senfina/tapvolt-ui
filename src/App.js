@@ -1,10 +1,9 @@
 import {useState,useEffect} from 'react';
 import './App.css';
-
 import {Buffer} from 'buffer';
-import {Button, PayButton, init, launchModal, launchPaymentModal, closeModal, requestProvider, Connect, SendPayment} from '@getalby/bitcoin-connect-react';
+import LNC from '@lightninglabs/lnc-web';
 
-
+console.log(Buffer)
 function App() {
 
 
@@ -19,19 +18,56 @@ function App() {
 
 
   const [assets,setAssets] = useState();
-  const [assetMeta,setMeta] = useState();
+  const [nodeChannels,setChannels] = useState([]);
 
+  const [assetMeta,setMeta] = useState();
+  const [nodeInfo,setNodeInfo] = useState();
+  // LNC 
+
+  const [pairingPhrase, setPairingPhrase] = useState('');
+  const [password, setPassword] = useState('');
+  const [connectionError, setConnectionError] = useState(null);
+
+  const handleConnect = async (event) => {
+    event.preventDefault(); // Prevent default form submission
+
+    setConnectionError(null); // Reset error
+
+    try {
+      const lncInstance = new LNC({
+        pairingPhrase: pairingPhrase,
+        password: password,
+      });
+
+      await lncInstance.connect();
+
+      setLNC(lncInstance);
+    } catch (error) {
+      console.error('LNC connection error:', error);
+      setConnectionError(error.message || 'Failed to connect. Please check your credentials.');
+    }
+  };
+
+  useEffect(() => {
+    if(lnc){
+      getInfo();
+      listChannels();
+      listAssets();
+    }
+  },[lnc]);
   // LND
   
   const getInfo = async() => {
       const { lightning } = lnc.lnd;
       const info = await lightning.getInfo();
+      setNodeInfo(info);
       console.log(info);
   };
   const listChannels = async() => {
       const { lightning } = lnc.lnd;
       const channels = await lightning.listChannels();
       console.log(channels);
+      setChannels(channels.channels)
   };
   const listPeers = async() => {
       const { lightning } = lnc.lnd;
@@ -115,12 +151,17 @@ function App() {
       console.log(batch);
   };
 
+
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       {lnc ? (
         <div className="bg-white rounded-lg shadow-md p-8">
           <header className="mb-8">
             <h1 className="text-3xl font-semibold text-gray-800">Taproot Assets Demo</h1>
+            <p>Connected as: {nodeInfo?.alias}</p>
+            <p>Total channels: {nodeChannels?.length || 0}</p>
+            <p>Total assets: {assets?.length || 0}</p>
+
           </header>
           <div>
             <h3 className="text-xl font-semibold mb-4 text-gray-700">
@@ -170,7 +211,49 @@ function App() {
             </p>
           </div>
           <div className="flex justify-center">
-            <Button onConnect={(newProvider) => setLNC(newProvider)} />
+          <form onSubmit={handleConnect}>
+            <div className="mb-4">
+              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="pairingPhrase">
+                Pairing Phrase
+              </label>
+              <input
+                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                id="pairingPhrase"
+                type="text"
+                placeholder="Enter your pairing phrase"
+                value={pairingPhrase}
+                onChange={(e) => setPairingPhrase(e.target.value)}
+                required
+              />
+            </div>
+            <div className="mb-6">
+              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="password">
+                Password
+              </label>
+              <input
+                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                id="password"
+                type="password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+            <div className="flex items-center justify-center">
+              <button
+                className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+                type="submit"
+              >
+                Connect with LNC
+              </button>
+            </div>
+            {connectionError && (
+              <div className="mt-4 text-red-500 text-sm text-center">
+                {connectionError}
+              </div>
+            )}
+          </form>
           </div>
           <div className="mt-8 text-center">
             <p className="text-sm text-gray-500">

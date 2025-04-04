@@ -3,7 +3,6 @@
   "version": "0.0.1",
   "private": true,
   "dependencies": {
-    "@getalby/bitcoin-connect-react": "^3.7.1",
     "@lightninglabs/lnc-web": "^0.2.8-alpha",
     "@testing-library/jest-dom": "5.16.2",
     "@testing-library/react": "12.1.3",
