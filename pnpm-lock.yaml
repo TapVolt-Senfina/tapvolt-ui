@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@lightninglabs/lnc-web':
-        specifier: ^0.2.8-alpha
-        version: 0.2.8-alpha
+        specifier: 0.3.3-alpha
+        version: 0.3.3-alpha
       '@testing-library/jest-dom':
         specifier: 5.16.2
         version: 5.16.2
@@ -1004,11 +1004,11 @@ packages:
   '@leichtgewicht/ip-codec@2.0.5':
     resolution: {integrity: sha512-Vo+PSpZG2/fmgmiNzYK9qWRh8h/CHrwD0mo1h1DzL4yzHNSfWYujGTYsWGreD000gcgmZ7K4Ys6Tx9TxtsKdDw==}
 
-  '@lightninglabs/lnc-core@0.2.8-alpha':
-    resolution: {integrity: sha512-2tHzmklIiQhJiK1aabX0R2AbbWi0mizWgniCUOb573XToYQN7L61Phh+hWUCxIFfAhHCkp2mnSmX+7eT/ikxOg==}
+  '@lightninglabs/lnc-core@0.3.3-alpha':
+    resolution: {integrity: sha512-9azOWE1PJ1D2jPe4k1t5jcVGiGxo1Jsh9LfzmC3NKV+1F70aCwC6L6g24dlgFIoq0ASFkhHDeWUZqVgKVBRKaA==}
 
-  '@lightninglabs/lnc-web@0.2.8-alpha':
-    resolution: {integrity: sha512-Pe0Moupd7mglbvbVZk7GqPNxa/4lFFWWsnYtiSahzjhNCmTaoQkk/gUY8kk1u5mHaqUmrL1YgLCLsmbGbWPV/g==}
+  '@lightninglabs/lnc-web@0.3.3-alpha':
+    resolution: {integrity: sha512-9x7qJVG3rrF1HIhQNlqzp7MMGYNgOm4r/Cq3ONeGSqLaXDM/7VDHS+LH+c+wRge5WIXvMOFfK4dcD/k0/iNRbg==}
 
   '@nicolo-ribaudo/eslint-scope-5-internals@5.1.1-v1':
     resolution: {integrity: sha512-54/JRvkLIzzDWshCWfuhadfrfZVPiElY8Fcgmg1HroEly/EDSszzhBAsarCux+D/kOslTRquNzuyGSmUSTTHGg==}
@@ -2011,8 +2011,8 @@ packages:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
 
-  crypto-js@4.1.1:
-    resolution: {integrity: sha512-o2JlM7ydqd3Qk9CA0L4NL6mTzU2sdx96a+oOfPu8Mkl/PK51vSyoi8/rQ8NknZtk44vq15lmhAj9CIAGwgeWKw==}
+  crypto-js@4.2.0:
+    resolution: {integrity: sha512-KALDyEYgpY+Rlob/iriUtjV6d5Eq+Y191A5g4UqLAi8CyGP9N1+FdVbkc1SxKc2r4YAYqG8JzO2KGL+AizD70Q==}
 
   crypto-random-string@2.0.0:
     resolution: {integrity: sha512-v1plID3y9r/lPhviJ1wrXpLeyUIGAZ2SHNYTEapm7/8A9nLPoyvVp3RK/EPFqn5kEznyWgYZNsRtYYIWbuG8KA==}
@@ -6857,12 +6857,12 @@ snapshots:
 
   '@leichtgewicht/ip-codec@2.0.5': {}
 
-  '@lightninglabs/lnc-core@0.2.8-alpha': {}
+  '@lightninglabs/lnc-core@0.3.3-alpha': {}
 
-  '@lightninglabs/lnc-web@0.2.8-alpha':
+  '@lightninglabs/lnc-web@0.3.3-alpha':
     dependencies:
-      '@lightninglabs/lnc-core': 0.2.8-alpha
-      crypto-js: 4.1.1
+      '@lightninglabs/lnc-core': 0.3.3-alpha
+      crypto-js: 4.2.0
 
   '@nicolo-ribaudo/eslint-scope-5-internals@5.1.1-v1':
     dependencies:
@@ -8051,7 +8051,7 @@ snapshots:
       shebang-command: 2.0.0
       which: 2.0.2
 
-  crypto-js@4.1.1: {}
+  crypto-js@4.2.0: {}
 
   crypto-random-string@2.0.0: {}
 
