@@ -8,7 +8,6 @@ import LNC, { taprpc } from '@lightninglabs/lnc-web';
 const ASSET_TYPE_NORMAL_NUM = 0;
 const ASSET_TYPE_COLLECTIBLE_NUM = 1;
 const ASSET_VERSION_V0_NUM = 0; // Use V0 based on tapcli success
-const ASSET_VERSION_V1_NUM = 1;
 const META_TYPE_OPAQUE_NUM = 0; // Based on taprpc.AssetMetaType
 
 
@@ -163,6 +162,8 @@ function App() {
       if (assetsBatch && Array.isArray(assetsBatch.batches) && assetsBatch.batches.length > 0) {
         console.log(assetsBatch)
         for(let batch of assetsBatch.batches){
+          /* All batches are saved in the node, their 'state' changes, it can be
+          FINISHED, PENDING or CANCELED */
           if(batch.batch.state === "BATCH_STATE_PENDING"){
             const formattedAssets = batch.batch.assets.map(asset => ({
               name: asset.name,
@@ -246,7 +247,7 @@ function App() {
       const request = {
         asset: {
           asset_version: ASSET_VERSION_V0_NUM,
-          asset_type: ASSET_TYPE_NORMAL_NUM,
+          asset_type: "NORMAL", // NORMAL OR COLLECTIBLE, need to implement for collectibles (an image or any doc)
           name: sanitizedName,
           amount: amount.toString(),
           // Use snake_case for asset_meta field name
@@ -327,6 +328,10 @@ function App() {
       return;
     }
     const {tapChannels} = lnc.tapd;
+    /* A form will allow set those parameters. For the demo we will do both nodes using Lightning Terminal
+    https://github.com/lightninglabs/lightning-terminal/releases in order to be sure that
+    supports taproot assets; An example lit.conf and bitcoin.conf (for signet multinynet) will be
+    placed in the repo readme */
     const request = {
       asset_amount: 1,
       asset_id: "id",
@@ -362,6 +367,8 @@ function App() {
                   Connect your Lightning Node:
                 </p>
               </div>
+              {/* BitcoinConnect looks better but can't be sure that all connection methods supports tapd; 
+              It looks that only Lit running with both tapd and lnd in integrated mode does */}
               <form onSubmit={handleConnect}>
                 <div className="mb-4">
                   <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="pairingPhrase">
@@ -378,6 +385,7 @@ function App() {
                     disabled={isConnecting}
                   />
                 </div>
+                {/** Implement later as lightning terminal does or test bitcoin connect again
                 <div className="mb-6">
                   <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="password">
                     Password
@@ -393,6 +401,9 @@ function App() {
                     disabled={isConnecting}
                   />
                 </div>
+                
+                */}
+
                 <div className="flex items-center justify-center">
                   <button
                     className={`bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline w-full transition duration-150 ease-in-out ${isConnecting ? 'opacity-50 cursor-not-allowed' : ''}`}
