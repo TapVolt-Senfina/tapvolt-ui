@@ -1,46 +1,34 @@
-import {useState,useEffect} from 'react';
+import React, { useState, useEffect } from 'react';
 import './App.css';
-import {Buffer} from 'buffer';
-import LNC from '@lightninglabs/lnc-web';
+import { Buffer } from 'buffer';
+import {LNC} from '@lightninglabs/lnc-web';
 
-console.log(Buffer)
 function App() {
+  const [lnc, setLNC] = useState();
+  const [assets, setAssets] = useState([]);
+  const [nodeChannels, setChannels] = useState([]);
+  const [nodeInfo, setNodeInfo] = useState();
 
-
-  // Main
-  const [lnc,setLNC] = useState();
-  const isConnected = () => console.log(lnc.isConnected);
-  const isReady = () => console.log(lnc.isReady);
-  const load = () => lnc.preload();
-  const run = () => lnc.run();
-  const connect = () => lnc.connect();
-  const disconnect = () => lnc.disconnect();
-
-
-  const [assets,setAssets] = useState();
-  const [nodeChannels,setChannels] = useState([]);
-
-  const [assetMeta,setMeta] = useState();
-  const [nodeInfo,setNodeInfo] = useState();
-  // LNC 
-
+  // LNC Connection Form State
   const [pairingPhrase, setPairingPhrase] = useState('');
   const [password, setPassword] = useState('');
   const [connectionError, setConnectionError] = useState(null);
 
+    // Mint Asset Form State
+  const [mintAssetName, setMintAssetName] = useState('');
+  const [mintAssetAmount, setMintAssetAmount] = useState('');
+  const [mintAssetError, setMintAssetError] = useState(null);
+  const [mintAssetSuccess, setMintAssetSuccess] = useState(null);
+
   const handleConnect = async (event) => {
-    event.preventDefault(); // Prevent default form submission
-
-    setConnectionError(null); // Reset error
-
+    event.preventDefault();
+    setConnectionError(null);
     try {
       const lncInstance = new LNC({
         pairingPhrase: pairingPhrase,
         password: password,
       });
-
       await lncInstance.connect();
-
       setLNC(lncInstance);
     } catch (error) {
       console.error('LNC connection error:', error);
@@ -49,120 +37,94 @@ function App() {
   };
 
   useEffect(() => {
-    if(lnc){
+    if (lnc) {
       getInfo();
       listChannels();
       listAssets();
     }
-  },[lnc]);
-  // LND
-  
-  const getInfo = async() => {
-      const { lightning } = lnc.lnd;
-      const info = await lightning.getInfo();
-      setNodeInfo(info);
-      console.log(info);
-  };
-  const listChannels = async() => {
-      const { lightning } = lnc.lnd;
-      const channels = await lightning.listChannels();
-      console.log(channels);
-      setChannels(channels.channels)
-  };
-  const listPeers = async() => {
-      const { lightning } = lnc.lnd;
-      const peers = await lightning.listPeers();
-      console.log(peers);
+  }, [lnc]);
+
+  const getInfo = async () => {
+    const { lightning } = lnc.lnd;
+    const info = await lightning.getInfo();
+    setNodeInfo(info);
+    console.log(info);
   };
 
-  const newAddress = async() => {
-      const { lightning } = lnc.lnd;
-
-      const address = await lightning.newAddress({ type: 'WITNESS_PUBKEY_HASH' });
-      console.log(address);
-  };
-  const lookupInvoice = async() => {
-      const { lightning } = lnc.lnd;
-
-      const invoice = await lightning.lookupInvoice({ rHashStr: 'f21981515ef639a86642f64cbe9f844c5286aad18b57441627f37103b7fa32ea' });
-      console.log(invoice);
+  const listChannels = async () => {
+    const { lightning } = lnc.lnd;
+    const channels = await lightning.listChannels();
+    console.log(channels);
+    setChannels(channels.channels);
   };
 
-  // Streaming
+  const listAssets = async () => {
+    const { taprootAssets } = lnc.tapd;
+    const assetsTap = await taprootAssets.listAssets();
+    let assetsArr = [];
+    for (let asset of assetsTap.assets) {
+      if (asset.assetType === 'COLLECTIBLE') {
+        const meta = await taprootAssets.fetchAssetMeta({asset_id: asset.assetGenesis.assetId.replace(/\+/g, '-').replace(/\//g, '_')});
 
-  const logger = (data) => {
-      console.log('logger', data);
-  };
-
-  const subscribePeerEvents = () => {
-      const { lightning } = lnc.lnd;
-
-      lightning.subscribePeerEvents({}, logger);
-  };
-
-  // Taproot Assets
-
-  const listAssets = async() => {
-      const { taprootAssets, mint, universe, assetWallet } = lnc.tapd;
-
-      const assetsTap = await taprootAssets.listAssets();
-      let assetsArr = [];
-      console.log(assetsTap);
-      for(let asset of assetsTap.assets){
-        if(asset.assetType === "COLLECTIBLE"){
-          const meta = await taprootAssets.fetchAssetMeta({asset_id: asset.assetGenesis.assetId.replace(/\+/g, '-').replace(/\//g, '_')});
-          assetsArr.push({
-            ...asset,
-            decodedMeta: Buffer.from(meta.data,'base64').toString('utf8')
-          });
-          console.log(assetsArr)
-        } else {
-          assetsArr.push(asset);
-        }
+        assetsArr.push({ ...asset, decodedMeta: Buffer.from(meta.data, 'base64').toString('utf8') });
+      } else {
+        assetsArr.push(asset);
       }
-      setAssets(assetsArr);
-
-
+    }
+    setAssets(assetsArr);
   };
 
-  const listBatches = async() => {
-      const { taprootAssets, mint, universe, assetWallet } = lnc.tapd;
-
-      const assets = await mint.listBatches();
-      console.log(assets);
+  const mintAsset = async (event) => {
+    event.preventDefault();
+    setMintAssetError(null);
+    setMintAssetSuccess(null);
+  
+    try {
+      const { mint } = lnc.tapd;
+      console.log(mint)
+      // Construct the MintAssetRequest
+      alert(mintAssetName)
+      const request = {
+        asset: {
+          name: mintAssetName,
+          amount: parseInt(mintAssetAmount),
+          assetType: "NORMAL"
+          // Add other necessary asset properties here
+        },
+        short_response: false, // Or true, depending on your needs
+      };
+  
+      // Call the mintAsset method
+      const response = await mint.mintAsset(request);
+  
+      // Handle the response
+      if (response && response.pendingBatch) {
+        setMintAssetSuccess(
+          `Asset minting initiated. Batch ID: ${response.pendingBatch.batchKey}`
+        );
+        setMintAssetName('');
+        setMintAssetAmount('');
+        listAssets(); // Refresh asset list
+      } else {
+        setMintAssetError('Failed to initiate asset minting.');
+      }
+    } catch (error) {
+      console.error('Mint asset error:', error);
+      setMintAssetError(error.message || 'Failed to mint asset.');
+    }
   };
-
-  const listFederationServers = async() => {
-      const { taprootAssets, mint, universe, assetWallet } = lnc.tapd;
-
-      const assets = await universe.listFederationServers();
-      console.log(assets);
-  };
-
-  const nextScriptKey = async() => {
-      const { taprootAssets, mint, universe, assetWallet } = lnc.tapd;
-      const assets = await assetWallet.nextScriptKey({ keyFamily: 1 })
-      console.log(assets);
-  };
-  const mintAsset = async() => {
-      const { taprootAssets, mint, universe, assetWallet } = lnc.tapd;
-      console.log(mint.mintAsset)
-      const batch = await mint.mintAsset();
-      console.log(batch);
-  };
-
 
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       {lnc ? (
         <div className="bg-white rounded-lg shadow-md p-8">
           <header className="mb-8">
-            <h1 className="text-3xl font-semibold text-gray-800">Taproot Assets Demo</h1>
+            <h1 className="text-3xl font-semibold text-gray-800">SENFINA Demo</h1>
             <p>Connected as: {nodeInfo?.alias}</p>
             <p>Total channels: {nodeChannels?.length || 0}</p>
             <p>Total assets: {assets?.length || 0}</p>
-
           </header>
+
           <div>
             <h3 className="text-xl font-semibold mb-4 text-gray-700">
               Welcome to Taproot Assets demo!
@@ -170,6 +132,50 @@ function App() {
             <p className="text-gray-600 mb-6">
               A protocol to mint assets in Bitcoin that are transferable via lightning network!
             </p>
+
+            <form onSubmit={mintAsset} className="mb-6">
+              <div className="mb-4">
+                <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="mintAssetName">
+                  Asset Name
+                </label>
+                <input
+                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                  id="mintAssetName"
+                  type="text"
+                  placeholder="Asset Name"
+                  value={mintAssetName}
+                  onChange={(e) => setMintAssetName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="mb-4">
+                <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="mintAssetAmount">
+                  Amount
+                </label>
+                <input
+                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                  id="mintAssetAmount"
+                  type="number"
+                  placeholder="Amount"
+                  value={mintAssetAmount}
+                  onChange={(e) => setMintAssetAmount(e.target.value)}
+                  required
+                />
+              </div>
+              <button
+                className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+                type="submit"
+              >
+                Mint Asset
+              </button>
+              {mintAssetError && (
+                <div className="mt-2 text-red-500 text-sm">{mintAssetError}</div>
+              )}
+              {mintAssetSuccess && (
+                <div className="mt-2 text-green-500 text-sm">{mintAssetSuccess}</div>
+              )}
+            </form>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {assets?.map((item, index) => (
                 <div key={index} className="border rounded-lg p-4 shadow-sm">
@@ -194,6 +200,7 @@ function App() {
           </div>
         </div>
       ) : (
+        // ... (LNC Connection Form)
         <div className="flex flex-col justify-center items-center min-h-screen bg-gradient-to-br from-indigo-100 to-purple-100">
         <div className="text-center mb-8">
           <h1 className="text-4xl font-extrabold text-gray-800 mb-4 tracking-tight">
@@ -268,7 +275,7 @@ function App() {
           </p>
         </div>
       </div>
-    )};
+      )}
     </div>
   );
 }
