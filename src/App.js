@@ -9,12 +9,13 @@ const ASSET_TYPE_NORMAL_NUM = 0;
 const ASSET_TYPE_COLLECTIBLE_NUM = 1;
 const ASSET_VERSION_V0_NUM = 0; // Use V0 based on tapcli success
 const ASSET_VERSION_V1_NUM = 1;
-// const META_TYPE_OPAQUE_NUM = 0; // Not needed for this test
+const META_TYPE_OPAQUE_NUM = 0; // Based on taprpc.AssetMetaType
 
 
 function App() {
   const [lnc, setLNC] = useState(null); // Initialize with null
   const [assets, setAssets] = useState([]);
+  const [batchAssets, setBatchAssets] = useState([]); 
   const [nodeChannels, setChannels] = useState([]);
   const [nodeInfo, setNodeInfo] = useState(null); // Initialize with null
 
@@ -27,7 +28,7 @@ function App() {
     // Mint Asset Form State - Keep inputs but values might be ignored for testing
   const [mintAssetName, setMintAssetName] = useState('');
   const [mintAssetAmount, setMintAssetAmount] = useState('');
-  const [mintAssetMeta, setMintAssetMeta] = useState('');
+  const [mintAssetMeta, setMintAssetMeta] = useState(''); // Re-enable meta input
   const [mintAssetError, setMintAssetError] = useState(null);
   const [mintAssetSuccess, setMintAssetSuccess] = useState(null);
   const [isMinting, setIsMinting] = useState(false); // Add minting state
@@ -44,7 +45,7 @@ function App() {
       console.log('Attempting to instantiate LNC...');
       const lncInstance = new LNC({
         pairingPhrase: pairingPhrase,
-        password: password,
+        //password: password,
         // Optionally add other configuration like workerPath if needed
       });
       console.log('LNC instance created, attempting to connect...');
@@ -66,6 +67,7 @@ function App() {
       getInfo();
       listChannels();
       listAssets();
+      listBatches();
     }
   }, [lnc]); // Rerun when lnc state changes
 
@@ -146,7 +148,35 @@ function App() {
         setAssets([]); // Set to empty array on error
     }
   };
+  const listBatches = async () => {
+    if (!lnc || !lnc.tapd || !lnc.tapd.mint) {
+      setMintAssetError("LNC or Taproot Mint service not initialized.");
+      setIsMinting(false);
+      return;
+    }
+    const { mint } = lnc.tapd;
+    try {
+      const assetsBatch = await mint.listBatches();
+      console.log(assetsBatch);
 
+      if (assetsBatch && Array.isArray(assetsBatch.batches) && assetsBatch.batches.length > 0) {
+        const assets = assetsBatch.batches[0].batch.assets || []; // Extract assets from first batch
+        const formattedAssets = assets.map(asset => ({
+          name: asset.name,
+          amount: asset.amount,
+          assetVersion: asset.assetVersion,
+          assetType: asset.assetType,
+          assetMeta: asset.assetMeta?.data ? Buffer.from(asset.assetMeta.data, 'base64').toString('utf8') : '', // decode metadata
+        }));
+        setBatchAssets(formattedAssets);
+      } else {
+        setBatchAssets([]); // Set to empty array if no batches or assets
+      }
+    } catch (error) {
+      console.error("Failed to list batches:", error);
+      setBatchAssets([]); // Set to empty array on error
+    }
+  };
 
   const mintAsset = async (event) => {
     event.preventDefault();
@@ -161,9 +191,13 @@ function App() {
         return;
     }
 
-    // *** Use Hardcoded name and ensure amount is valid ***
-    const hardcodedName = "test1";
-    console.log(`Using hardcoded name: "${hardcodedName}"`);
+    // Use the name from state, but sanitize it
+    const sanitizedName = mintAssetName.replace(/[\r\n]+/g, '').trim();
+    if (!sanitizedName) {
+        setMintAssetError("Asset name cannot be empty or contain only whitespace/newlines.");
+        setIsMinting(false);
+        return;
+    }
 
     const amount = parseInt(mintAssetAmount, 10);
     if (isNaN(amount) || amount <= 0) {
@@ -172,26 +206,50 @@ function App() {
         return;
     }
 
+    // Reintroduce metadata handling, ensuring data is Base64
+    let metaDataBytesBase64 = "";
+    const trimmedMeta = mintAssetMeta.trim();
+    if (trimmedMeta) {
+        try {
+            const sanitizedMeta = trimmedMeta.replace(/[\r\n]+/g, ''); // Sanitize meta too
+            metaDataBytesBase64 = Buffer.from(sanitizedMeta, 'utf8').toString('base64');
+             // Add console log to check the base64 string
+            console.log("Encoded Metadata (Base64):", metaDataBytesBase64);
+        } catch (bufferError) {
+            console.error("Error encoding metadata:", bufferError);
+            setMintAssetError("Failed to encode metadata.");
+            setIsMinting(false);
+            return;
+        }
+    } else {
+        // If no meta provided, send empty base64 string as data might be required
+        // OR omit asset_meta entirely. Let's try sending empty data first.
+        metaDataBytesBase64 = ""; // Represents empty bytes
+        console.log("No metadata provided, sending empty base64 string for data field.");
+    }
+
+
     try {
       const { mint } = lnc.tapd;
 
-      // *** Build the ABSOLUTE MINIMUM request, removing asset_meta ***
-      const encoder = new TextEncoder();
-
+      // Construct request, ensuring correct field names and data types
+      // Use snake_case for asset_meta and ensure data is base64 string
       const request = {
         asset: {
-          asset_version: ASSET_VERSION_V0_NUM, // Use 0 (V0) based on tapcli
-          asset_type: ASSET_TYPE_NORMAL_NUM,   // Use 0 (NORMAL)
-          name: hardcodedName,                // Use the hardcoded name
-          amount: amount.toString(),          // Send amount as string
-          assetMeta: {
-            data: new Uint8Array(1)
+          asset_version: ASSET_VERSION_V0_NUM,
+          asset_type: ASSET_TYPE_NORMAL_NUM,
+          name: sanitizedName,
+          amount: amount.toString(),
+          // Use snake_case for asset_meta field name
+          asset_meta: {
+              data: metaDataBytesBase64,      // Ensure this is a base64 string
+              type: META_TYPE_OPAQUE_NUM     // Use 0 (OPAQUE)
           }
         },
         short_response: false,
       };
 
-      console.log("Minting request (JS object, absolute minimum):", request);
+      console.log("Minting request (JS object, snake_case meta):", request);
       console.log("Minting request (JSON):", JSON.stringify(request, null, 2));
 
       const response = await mint.mintAsset(request);
@@ -203,8 +261,7 @@ function App() {
         setMintAssetSuccess(
           `Asset minting initiated. Batch key: ${batchKeyHex}`
         );
-        // Don't clear name field since it wasn't used for the request value
-        // setMintAssetName('');
+        setMintAssetName('');
         setMintAssetAmount('');
         setMintAssetMeta(''); // Clear metadata field
         // Refresh asset list after a short delay
@@ -225,7 +282,20 @@ function App() {
         setIsMinting(false); // Reset minting state
     }
   };
-
+  const finalizeBatch = async () => {
+    // Basic check if lnc services exist
+    if (!lnc || !lnc.tapd || !lnc.tapd.mint) {
+      setMintAssetError("LNC or Taproot Mint service not initialized.");
+      setIsMinting(false);
+      return;
+    }
+    const {mint} = lnc.tapd;
+    const batchResponse = await mint.finalizeBatch({
+      fee_rate: 253 //floor
+    });
+    console.log(batchResponse);
+    await listBatches();
+  };
 
   // --- Render Logic ---
 
@@ -368,7 +438,7 @@ function App() {
                 {/* Name Input */}
                 <div className="mb-4">
                     <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="mintAssetName">
-                    Asset Name (Current value ignored for this test)
+                    Asset Name
                     </label>
                     <input
                     className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -398,21 +468,21 @@ function App() {
                     disabled={isMinting}
                     />
                 </div>
-                {/* Metadata Input (Optional, value ignored for this test) */}
+                {/* Metadata Input (Optional) */}
                 <div className="mb-6">
                     <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="mintAssetMeta">
-                    Metadata (Optional Text, ignored for this test)
+                    Metadata (Optional Text)
                     </label>
                     <input
-                    className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-200" // Indicate ignored
+                    className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     id="mintAssetMeta"
                     type="text"
                     placeholder="e.g., Asset description"
                     value={mintAssetMeta}
                     onChange={(e) => setMintAssetMeta(e.target.value)}
-                    disabled={true} // Disable for this test
+                    disabled={isMinting}
                     />
-                     <p className="text-xs text-gray-500 mt-1">Metadata is omitted for this specific test.</p>
+                     <p className="text-xs text-gray-500 mt-1">This will be stored as OPAQUE metadata.</p>
                 </div>
 
               <button
@@ -420,7 +490,7 @@ function App() {
                 type="submit"
                 disabled={isMinting}
               >
-                {isMinting ? 'Minting...' : 'Mint Asset (Minimal Request Test)'}
+                {isMinting ? 'Minting...' : 'Mint Asset'}
               </button>
               {mintAssetError && (
                 <div className="mt-3 text-red-600 text-sm bg-red-100 p-3 rounded border border-red-300">{mintAssetError}</div>
@@ -430,7 +500,32 @@ function App() {
               )}
             </form>
           </div>
-
+          {batchAssets.length > 0 && (
+            <div className="mt-6">
+              <h4 className="text-lg font-semibold mb-2">Assets in Batch</h4>
+              <ul>
+                {batchAssets.map((asset, index) => (
+                  <li key={index} className="border p-2 rounded mb-2">
+                    <strong>{asset.name}</strong> - {asset.amount}
+                    <p className="text-xs text-gray-500">
+                      Version: {asset.assetVersion}, Type: {asset.assetType}
+                    </p>
+                    {asset.assetMeta && (
+                      <p className="text-xs text-gray-500">
+                        Meta: {asset.assetMeta}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <button
+                className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out mt-4"
+                onClick={finalizeBatch}
+              >
+                Finalize Batch
+              </button>
+            </div>
+          )}
           {/* Owned Assets Section */}
           <div>
             <h3 className="text-xl font-semibold mb-6 text-gray-700">
