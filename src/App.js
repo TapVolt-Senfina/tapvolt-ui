@@ -32,6 +32,17 @@ function App() {
   const [mintAssetSuccess, setMintAssetSuccess] = useState(null);
   const [isMinting, setIsMinting] = useState(false); // Add minting state
 
+
+
+  // Fund Channel Form State
+  const [assetAmount, setAssetAmount] = useState('');
+  const [assetId, setAssetId] = useState('');
+  const [peerPubkey, setPeerPubkey] = useState('');
+  const [feeRateSatPerVbyte, setFeeRateSatPerVbyte] = useState('');
+  const [fundChannelError, setFundChannelError] = useState(null);
+  const [fundChannelSuccess, setFundChannelSuccess] = useState(null);
+  const [isFunding, setIsFunding] = useState(false);
+
   const handleConnect = async (event) => {
     event.preventDefault();
     setConnectionError(null);
@@ -319,28 +330,43 @@ function App() {
     await listBatches();
   };
 
-  const fundChannel = async () => {
-    
-    // Basic check if lnc services exist
+  const fundChannel = async (event) => {
+    if (event) event.preventDefault();
+    setFundChannelError(null);
+    setFundChannelSuccess(null);
+    setIsFunding(true);
+
     if (!lnc || !lnc.tapd || !lnc.tapd.tapChannels) {
-      setMintAssetError("LNC or Taproot TapChannel service not initialized.");
-      setIsMinting(false);
+      setFundChannelError("LNC or Taproot TapChannel service not initialized.");
+      setIsFunding(false);
       return;
     }
-    const {tapChannels} = lnc.tapd;
-    /* A form will allow set those parameters. For the demo we will do both nodes using Lightning Terminal
-    https://github.com/lightninglabs/lightning-terminal/releases in order to be sure that
-    supports taproot assets; An example lit.conf and bitcoin.conf (for signet multinynet) will be
-    placed in the repo readme */
-    const request = {
-      asset_amount: 1,
-      asset_id: "id",
-      peer_pubkey: "peer to openchannel with (must support tapchannels)",
-      fee_rate_sat_per_vbyte: 1
+
+    const { tapChannels } = lnc.tapd;
+
+    try {
+      const request = {
+        asset_amount: parseInt(assetAmount, 10),
+        asset_id: assetId,
+        peer_pubkey: peerPubkey,
+        fee_rate_sat_per_vbyte: parseInt(feeRateSatPerVbyte, 10),
+      };
+
+      const fundChannelResponse = await tapChannels.fundChannel(request);
+      console.log("Fund Channel Response:", fundChannelResponse);
+      setFundChannelSuccess("Channel funding initiated successfully.");
+      setAssetAmount('');
+      setAssetId('');
+      setPeerPubkey('');
+      setFeeRateSatPerVbyte('');
+    } catch (error) {
+      console.error("Failed to fund channel:", error);
+      setFundChannelError(error.message || "Failed to fund channel. Please check your inputs.");
+    } finally {
+      setIsFunding(false);
     }
-    const fundChannelResponse = await tapChannels.fundChannel({});
-    console.log(fundChannelResponse);
   };
+
   // --- Render Logic ---
 
   // Loading state while connecting
@@ -385,7 +411,8 @@ function App() {
                     disabled={isConnecting}
                   />
                 </div>
-                {/** Implement later as lightning terminal does or test bitcoin connect again
+                {/** Implement later as lightning terminal does or test bitcoin connect again (with LNC connection)
+                 * in future
                 <div className="mb-6">
                   <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="password">
                     Password
@@ -651,7 +678,97 @@ function App() {
                  <p className="text-gray-500">No assets found or still loading...</p>
              )}
           </div>
+          {/* Fund Channel Form */}
+          {
+            assets?.length > 0 &&
+            <div>
+              <h3 className="text-xl font-semibold mb-4 text-gray-700">
+                Fund Taproot Asset Channel
+              </h3>
+              <p className="text-gray-600 mb-6">
+                Open a channel with assets.
+              </p>
+
+              <form onSubmit={fundChannel} className="mb-6 bg-gray-50 p-6 rounded-lg border">
+                <div className="mb-4">
+                  <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="assetAmount">
+                    Asset Amount
+                  </label>
+                  <input
+                    className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    id="assetAmount"
+                    type="number"
+                    placeholder="e.g., 1"
+                    value={assetAmount}
+                    onChange={(e) => setAssetAmount(e.target.value)}
+                    required
+                    disabled={isFunding}
+                  />
+                </div>
+                <div className="mb-4">
+                  <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="assetId">
+                    Asset ID
+                  </label>
+                  <input
+                    className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    id="assetId"
+                    type="text"
+                    placeholder="e.g., asset_id"
+                    value={assetId}
+                    onChange={(e) => setAssetId(e.target.value)}
+                    required
+                    disabled={isFunding}
+                  />
+                </div>
+                <div className="mb-4">
+                  <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="peerPubkey">
+                    Peer Public Key
+                  </label>
+                  <input
+                    className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    id="peerPubkey"
+                    type="text"
+                    placeholder="e.g., peer_pubkey"
+                    value={peerPubkey}
+                    onChange={(e) => setPeerPubkey(e.target.value)}
+                    required
+                    disabled={isFunding}
+                  />
+                </div>
+                <div className="mb-6">
+                  <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="feeRateSatPerVbyte">
+                    Fee Rate (sat/vbyte)
+                  </label>
+                  <input
+                    className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    id="feeRateSatPerVbyte"
+                    type="number"
+                    placeholder="e.g., 1"
+                    value={feeRateSatPerVbyte}
+                    onChange={(e) => setFeeRateSatPerVbyte(e.target.value)}
+                    required
+                    disabled={isFunding}
+                  />
+                </div>
+
+                <button
+                  className={`w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out ${isFunding ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  type="submit"
+                  disabled={isFunding}
+                >
+                  {isFunding ? 'Funding...' : 'Fund Channel'}
+                </button>
+                {fundChannelError && (
+                  <div className="mt-3 text-red-600 text-sm bg-red-100 p-3 rounded border border-red-300">{fundChannelError}</div>
+                )}
+                {fundChannelSuccess && (
+                  <div className="mt-3 text-green-600 text-sm bg-green-100 p-3 rounded border border-green-300">{fundChannelSuccess}</div>
+                )}
+              </form>
+            </div>
+          }
         </div>
+
     </div>
   );
 }
