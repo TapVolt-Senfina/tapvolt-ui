@@ -452,7 +452,7 @@ function App() {
                 </p>
                  <p className="text-xs text-gray-400 mt-2">
                     Ensure LNC is running and accessible. Need help?
-                    <a href="https://docs.lightning.engineering/lightning-network-tools/lightning-node-connect/installation" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline ml-1">
+                    <a href="https://docs.lightning.engineering/lightning-network-tools/lightning-node-connect/overview" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline ml-1">
                         LNC Docs
                     </a>
                  </p>
