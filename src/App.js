@@ -64,6 +64,7 @@ function App() {
     // Fetch data only if LNC object exists and seems ready
     if (lnc && lnc.isReady) {
       console.log('LNC ready, fetching node data...');
+      console.log(lnc.tapd.tapChannels)
       getInfo();
       listChannels();
       listAssets();
@@ -158,17 +159,25 @@ function App() {
     try {
       const assetsBatch = await mint.listBatches();
       console.log(assetsBatch);
-
+      let formattedAssetsArray = [];
       if (assetsBatch && Array.isArray(assetsBatch.batches) && assetsBatch.batches.length > 0) {
-        const assets = assetsBatch.batches[0].batch.assets || []; // Extract assets from first batch
-        const formattedAssets = assets.map(asset => ({
-          name: asset.name,
-          amount: asset.amount,
-          assetVersion: asset.assetVersion,
-          assetType: asset.assetType,
-          assetMeta: asset.assetMeta?.data ? Buffer.from(asset.assetMeta.data, 'base64').toString('utf8') : '', // decode metadata
-        }));
-        setBatchAssets(formattedAssets);
+        console.log(assetsBatch)
+        for(let batch of assetsBatch.batches){
+          if(batch.batch.state === "BATCH_STATE_PENDING"){
+            const formattedAssets = batch.batch.assets.map(asset => ({
+              name: asset.name,
+              amount: asset.amount,
+              assetVersion: asset.assetVersion,
+              assetType: asset.assetType,
+              assetMeta: asset.assetMeta?.data ? Buffer.from(asset.assetMeta.data, 'base64').toString('utf8') : '', // decode metadata
+            }));
+            console.log(formattedAssets)
+            formattedAssetsArray.push(formattedAssets);
+          }
+        }
+
+      
+        setBatchAssets(formattedAssetsArray);
       } else {
         setBatchAssets([]); // Set to empty array if no batches or assets
       }
@@ -264,8 +273,8 @@ function App() {
         setMintAssetName('');
         setMintAssetAmount('');
         setMintAssetMeta(''); // Clear metadata field
-        // Refresh asset list after a short delay
-        setTimeout(listAssets, 2000);
+        listBatches();
+
       } else {
         // Check if there's an error field in the response itself
         const backendError = response?.error || 'Unexpected response structure from server.';
@@ -296,7 +305,37 @@ function App() {
     console.log(batchResponse);
     await listBatches();
   };
+  const cancelBatch = async () => {
+    // Basic check if lnc services exist
+    if (!lnc || !lnc.tapd || !lnc.tapd.mint) {
+      setMintAssetError("LNC or Taproot Mint service not initialized.");
+      setIsMinting(false);
+      return;
+    }
+    const {mint} = lnc.tapd;
+    const batchResponse = await mint.cancelBatch({});
+    console.log(batchResponse);
+    await listBatches();
+  };
 
+  const fundChannel = async () => {
+    
+    // Basic check if lnc services exist
+    if (!lnc || !lnc.tapd || !lnc.tapd.tapChannels) {
+      setMintAssetError("LNC or Taproot TapChannel service not initialized.");
+      setIsMinting(false);
+      return;
+    }
+    const {tapChannels} = lnc.tapd;
+    const request = {
+      asset_amount: 1,
+      asset_id: "id",
+      peer_pubkey: "peer to openchannel with (must support tapchannels)",
+      fee_rate_sat_per_vbyte: 1
+    }
+    const fundChannelResponse = await tapChannels.fundChannel({});
+    console.log(fundChannelResponse);
+  };
   // --- Render Logic ---
 
   // Loading state while connecting
@@ -414,10 +453,9 @@ function App() {
     <div className="min-h-screen bg-gray-100 p-4 md:p-8">
         <div className="bg-white rounded-lg shadow-md p-6 md:p-8 max-w-4xl mx-auto">
           <header className="mb-8 border-b pb-4">
-            <h1 className="text-2xl md:text-3xl font-semibold text-gray-800">SENFINA LNC Demo</h1>
+            <h1 className="text-2xl md:text-3xl font-semibold text-gray-800">SENFINA TapVolt Demo</h1>
              <div className="mt-4 text-sm text-gray-600 space-y-1">
                 <p>Alias: <span className="font-medium text-gray-800">{nodeInfo?.alias || 'Loading...'}</span></p>
-                <p>Network: <span className="font-medium text-gray-800">{nodeInfo?.network || 'Loading...'}</span></p>
                 <p>Block Height: <span className="font-medium text-gray-800">{nodeInfo?.blockHeight || 'Loading...'}</span></p>
                 <p>Synced: <span className="font-medium text-gray-800">{typeof nodeInfo?.syncedToChain === 'boolean' ? (nodeInfo.syncedToChain ? 'Yes' : 'No') : 'Loading...'}</span></p>
                 <p>Channels: <span className="font-medium text-gray-800">{nodeChannels?.length ?? 'Loading...'}</span></p>
@@ -503,21 +541,35 @@ function App() {
           {batchAssets.length > 0 && (
             <div className="mt-6">
               <h4 className="text-lg font-semibold mb-2">Assets in Batch</h4>
-              <ul>
-                {batchAssets.map((asset, index) => (
-                  <li key={index} className="border p-2 rounded mb-2">
-                    <strong>{asset.name}</strong> - {asset.amount}
-                    <p className="text-xs text-gray-500">
-                      Version: {asset.assetVersion}, Type: {asset.assetType}
-                    </p>
-                    {asset.assetMeta && (
-                      <p className="text-xs text-gray-500">
-                        Meta: {asset.assetMeta}
-                      </p>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              {
+                batchAssets.map(batch => {
+                  return(
+                    <ul>
+                    {
+                    batch.map((asset, index) => (
+                      <li key={index} className="border p-2 rounded mb-2">
+                        <strong>{asset.name}</strong> - {asset.amount}
+                        <p className="text-xs text-gray-500">
+                          Type: {asset.assetType}
+                        </p>
+                        {asset.assetMeta && (
+                          <p className="text-xs text-gray-500">
+                            Meta: {asset.assetMeta}
+                          </p>
+                        )}
+                      </li>
+                    ))
+                    }
+                    </ul>
+                  )
+                })
+              }
+              <button
+                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out mt-4"
+                onClick={cancelBatch}
+              >
+                Cancel Batch
+              </button>
               <button
                 className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out mt-4"
                 onClick={finalizeBatch}
@@ -536,7 +588,6 @@ function App() {
                     {assets.map((item, index) => {
                         // Use helper to safely get enum names from numeric or string values
                         const assetTypeString = getEnumName(taprpc?.AssetType, item.assetType);
-                        const assetVersionString = getEnumName(taprpc?.AssetVersion, item.version);
 
                         // Prefer assetIdStr for display if available
                         const displayAssetId = item.assetGenesis?.assetIdStr || item.assetGenesis?.assetId || 'N/A';
@@ -547,7 +598,6 @@ function App() {
                                 Name: {item.assetGenesis?.name || 'N/A'}
                             </p>
                             <p className="text-gray-700 mb-2">Type: <span className="font-mono bg-gray-100 px-1 rounded text-xs">{assetTypeString}</span></p>
-                            <p className="text-gray-700 mb-2">Version: <span className="font-mono bg-gray-100 px-1 rounded text-xs">{assetVersionString}</span></p>
                             <p className="text-gray-700 mb-2">Amount: {item.amount ? item.amount.toString() : 'N/A'}</p>
                             <p className="text-xs text-gray-500 mb-2 break-all" title={displayAssetId}>ID: {displayAssetId}</p>
                             <p className="text-xs text-gray-500 break-all">Genesis Pt: {item.assetGenesis?.genesisPoint || 'N/A'}</p>
