@@ -5,10 +5,58 @@ import { Buffer } from 'buffer';
 import LNC, { taprpc } from '@lightninglabs/lnc-web';
 
 // Define expected numeric values based on .proto definitions
-const ASSET_TYPE_NORMAL_NUM = 0;
 const ASSET_TYPE_COLLECTIBLE_NUM = 1;
 const ASSET_VERSION_V0_NUM = 0; // Use V0 based on tapcli success
 const META_TYPE_OPAQUE_NUM = 0; // Based on taprpc.AssetMetaType
+
+// --- Helper Functions ---
+
+/**
+ * Converts a hexadecimal string to a Uint8Array.
+ * @param {string} hex The hexadecimal string.
+ * @returns {Uint8Array} The resulting byte array.
+ * @throws {Error} If the hex string is invalid.
+ */
+function hexToBytes(hex) {
+  if (!hex || hex.length % 2 !== 0) {
+    // Basic validation: ensure hex is not empty and has even length
+    throw new Error("Invalid hex string provided.");
+  }
+  try {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < hex.length; i += 2) {
+      bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+      if (isNaN(bytes[i / 2])) {
+         // Check if parseInt resulted in NaN (non-hex characters)
+         throw new Error("Invalid characters in hex string.");
+      }
+    }
+    return bytes;
+  } catch (e) {
+     throw new Error("Failed to parse hex string: " + e.message);
+  }
+}
+
+/**
+ * Converts a Base64 string to a Uint8Array (Browser environment).
+ * @param {string} base64 The Base64 encoded string.
+ * @returns {Uint8Array} The resulting byte array.
+ * @throws {Error} If the Base64 string is invalid.
+ */
+function base64ToBytes(base64) {
+  try {
+    const binaryString = window.atob(base64); // Use window.atob for browser
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+  } catch (e) {
+    // Catch errors like invalid Base64 characters
+    throw new Error("Failed to decode Base64 string: " + e.message);
+  }
+}
 
 
 function App() {
@@ -330,6 +378,10 @@ function App() {
     await listBatches();
   };
 
+  /**
+   * Handles the form submission to fund a Taproot Asset channel.
+   * @param {Event} [event] - Optional form event object.
+   */
   const fundChannel = async (event) => {
     if (event) event.preventDefault();
     setFundChannelError(null);
@@ -345,11 +397,16 @@ function App() {
     const { tapChannels } = lnc.tapd;
 
     try {
+      // Convert assetId and peerPubkey to base64 encoded strings
+      const modifiedBase64 = assetId.replace(/\+/g, '-').replace(/\//g, '_');
+
+      const peerPubkeyBase64 = Buffer.from(peerPubkey, 'hex').toString('base64');
+
       const request = {
-        asset_amount: parseInt(assetAmount, 10),
-        asset_id: assetId,
-        peer_pubkey: peerPubkey,
-        fee_rate_sat_per_vbyte: parseInt(feeRateSatPerVbyte, 10),
+        assetAmount: assetAmount, // string, not number
+        assetId: modifiedBase64,
+        peerPubkey: peerPubkeyBase64.replace(/\+/g, '-').replace(/\//g, '_'),
+        feeRateSatPerVbyte: feeRateSatPerVbyte,
       };
 
       const fundChannelResponse = await tapChannels.fundChannel(request);
@@ -361,7 +418,7 @@ function App() {
       setFeeRateSatPerVbyte('');
     } catch (error) {
       console.error("Failed to fund channel:", error);
-      setFundChannelError(error.message || "Failed to fund channel. Please check your inputs.");
+      setFundChannelError(error.message || "Failed to fund channel. Please check your inputs and ensure they are hex encoded.");
     } finally {
       setIsFunding(false);
     }
