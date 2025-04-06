@@ -55,7 +55,7 @@ TapVolt is a React application that allows users to interact with their Lightnin
 
 ## Configuration
 
--   Run bitcoind (testnet or signet) and configure it as the example of **bitcoin.conf** bellow that uses [Multinynet Signet](https://faucet.mutinynet.com/):
+-   Run bitcoind (signet) and configure it as the example of **bitcoin.conf** bellow that uses [Signet](https://mempool.space/signet):
 -   Run [Lightning Terminal](https://github.com/lightninglabs/lightning-terminal) (Lit) in integrated mode for both lnd and tapd, example of **lit.conf**:
 -   The application uses `@lightninglabs/lnc-web` for LNC integration. Make sure LNC is running and accessible.
 -   LND, Lit and Tapd docs for better undestanding: [https://docs.lightning.engineering/the-lightning-network/overview](https://docs.lightning.engineering/the-lightning-network/overview)
@@ -68,8 +68,10 @@ See the `examples` directory for example configurations of `lit.conf` and `bitco
 ```
 signet=1
 server=1
-rpcuser=RPC_USER # change for your own
-rpcpassword=RPC_PASSWORD # change for your own
+# change for your own
+rpcuser=RPC_USER 
+# change for your own
+rpcpassword=RPC_PASSWORD 
 rpcallowip=127.0.0.1
 zmqpubrawblock=tcp://127.0.0.1:28336
 zmqpubrawtx=tcp://127.0.0.1:28337
@@ -77,10 +79,6 @@ prune=1000
 
 [signet]
 rpcport=18337
-signetchallenge=512102f7561d208dd9ae99bf497273e16f389bdbd6c4742ddb8e6b216e64fa2928ad8f51ae
-addnode=45.79.52.207:38333
-dnsseed=0
-signetblocktime=30
 ``` 
 - **lit.conf**
 
@@ -88,8 +86,10 @@ signetblocktime=30
 #Lit Settings
 enablerest=true
 uipassword=YOUR_UI_PASSWORD
-autopilot.disable=true # Disable for testnets/signet
-httpslisten=127.0.0.1:8444 # Lit UI
+# Disable for testnets/signet
+autopilot.disable=true 
+# Lit UI
+httpslisten=127.0.0.1:8444 
 network=signet 
 loop-mode=disable
 pool-mode=disable
@@ -97,22 +97,30 @@ lnd-mode=integrated # Must be integrated
 
 # LND Settings
 lnd.lnddir=DESIRED_LND_DIR_REMOVE_TO_KEEP_DEFAULT
-lnd.alias=YOUR_NODE_ALIAS_ANY_VALUE_OR_JUST_REMOVE_IT # Makes easier to find your node at https://mutinynet.com/lightning
+# Makes easier to find your node at https://mempool.space/signet/lightning
+lnd.alias=YOUR_NODE_ALIAS_ANY_VALUE_OR_JUST_REMOVE_IT 
 lnd.accept-keysend=true
-lnd.minchansize=25000 # Can be changed if desired, minimum channel size that can be oppenned with you
+# Can be changed if desired, minimum channel size that can be oppenned with you
+lnd.minchansize=25000 
 lnd.bitcoin.active=1
 lnd.bitcoin.node=bitcoind
 lnd.bitcoind.dir=BITCOIN_DIRECTORY_REMOVE_FOR_DEFAULT
-lnd.bitcoind.rpchost=127.0.0.1:18337 # Same used by Bitcoind
+# Same used by Bitcoind
+lnd.bitcoind.rpchost=127.0.0.1:18337 
 lnd.bitcoind.rpcuser=SAME_AS_BITCOIN.CONF
 lnd.bitcoind.rpcpass=SAME_AS_BITCOIN.CONF
-lnd.bitcoind.zmqpubrawblock=tcp://127.0.0.1:28336 # Same used by Bitcoind
-lnd.bitcoind.zmqpubrawtx=tcp://127.0.0.1:28337 # Same used by Bitcoind
+# Same used by Bitcoind
+lnd.bitcoind.zmqpubrawblock=tcp://127.0.0.1:28336 
+# Same used by Bitcoind
+lnd.bitcoind.zmqpubrawtx=tcp://127.0.0.1:28337 
 lnd.rpcmiddleware.enable=true
 lnd.autopilot.active=false
 
 # Tapd
 taproot-assets.datadir=DESIRED_TAPD_DIR_OR_REMOVE_FOR_DEFAULT
+taproot-assets.universe.federationserver=universe.signet.laisee.org:8443
+taproot-assets.proofcourieraddr=universerpc://universe.signet.laisee.org:8443
+
 #Taproot Assets Channels
 lnd.protocol.option-scid-alias=true
 lnd.protocol.zero-conf=true

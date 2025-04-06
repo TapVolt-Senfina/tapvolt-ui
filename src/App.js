@@ -129,6 +129,7 @@ function App() {
       listChannels();
       listAssets();
       listBatches();
+      listFederationServers();
     } else {
       // Optional: Clear data if lnc becomes null or not ready
       setNodeInfo(null);
@@ -144,7 +145,11 @@ function App() {
     try { const info = await lightning.getInfo(); setNodeInfo(info); console.log("Node Info:", info); }
     catch(error) { console.error("Failed to get node info:", error); setNodeInfo(null); }
   };
-
+  const listFederationServers = async() => {
+    const { universe } = lnc.tapd;
+    const servers = await universe.listFederationServers();
+    console.log(servers);
+  };
   const listChannels = async () => {
     if (!lnc || !lnc.lnd?.lightning) { console.error("LNC or LND lightning service not initialized for listChannels"); return; }
     const { lightning } = lnc.lnd;
