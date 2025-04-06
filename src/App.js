@@ -149,6 +149,10 @@ function App() {
     const { universe } = lnc.tapd;
     const servers = await universe.listFederationServers();
     console.log(servers);
+    const sync = await universe.syncUniverse({
+      universeHost: "universe.signet.laisee.org:8443"
+    });
+    console.log(sync)
   };
   const listChannels = async () => {
     if (!lnc || !lnc.lnd?.lightning) { console.error("LNC or LND lightning service not initialized for listChannels"); return; }
