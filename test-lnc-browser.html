@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>LNC WASM Browser Harness</title>
+  <style>
+    body { font-family: monospace; background: #181c20; color: #e0e0e0; }
+    #output { background: #23272e; padding: 1em; border-radius: 6px; min-height: 200px; }
+    label, input, select, button { font-size: 1em; margin: 0.3em; }
+    .row { margin-bottom: 0.7em; }
+    .error { color: #ff6666; }
+    .success { color: #6fff66; }
+  </style>
+</head>
+<body>
+  <h2>LNC WASM Browser Harness</h2>
+  <form id="lnc-form">
+    <div class="row">
+      <label>Pairing Phrase: <input id="pairingPhrase" required size="50" /></label>
+    </div>
+    <div class="row">
+      <label>WASM Log Level:
+        <select id="logLevel">
+          <option value="INFO">INFO</option>
+          <option value="DEBUG" selected>DEBUG</option>
+          <option value="TRACE">TRACE</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <label>Server Endpoint (optional): <input id="serverEndpoint" size="40" placeholder="e.g. wss://..." /></label>
+    </div>
+    <div class="row">
+      <label>Origin Header (optional): <input id="originHeader" size="30" placeholder="e.g. http://localhost:3000" /></label>
+    </div>
+    <div class="row">
+      <label>WASM URL (optional): <input id="wasmUrl" size="60" placeholder="e.g. https://cdn.skypack.dev/@lightninglabs/lnc-web/dist/lnc_wasm_client_bg.wasm" /></label>
+    </div>
+    <button type="submit">Connect</button>
+    <button type="button" id="clearBtn">Clear Output</button>
+  </form>
+  <pre id="output"></pre>
+  <script type="module">
+    import LNCFactory from 'https://cdn.skypack.dev/@lightninglabs/lnc-web';
+    const output = document.getElementById('output');
+    function log(...args) {
+      output.textContent += args.map(a => (typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a))).join(' ') + '\n';
+      output.scrollTop = output.scrollHeight;
+      console.log(...args);
+    }
+    function logError(...args) {
+      log('%c' + args.join(' '), 'color:#ff6666');
+    }
+    document.getElementById('clearBtn').onclick = () => { output.textContent = ''; };
+    document.getElementById('lnc-form').onsubmit = async e => {
+      e.preventDefault();
+      output.textContent = '';
+      const pairingPhrase = document.getElementById('pairingPhrase').value.trim();
+      const logLevel = document.getElementById('logLevel').value;
+      const serverEndpoint = document.getElementById('serverEndpoint').value.trim();
+      const originHeader = document.getElementById('originHeader').value.trim();
+      let wasmUrl = document.getElementById('wasmUrl').value.trim();
+      if (!wasmUrl) wasmUrl = 'https://cdn.skypack.dev/@lightninglabs/lnc-web/dist/lnc_wasm_client_bg.wasm';
+      if (!pairingPhrase) {
+        logError('No pairing phrase entered.');
+        return;
+      }
+      let resp, wasmBytes, client, inst;
+      try {
+        log('[INFO] LNC WASM Browser Harness starting...');
+        // Log LNCFactory signature
+        log('[DEBUG] typeof LNCFactory:', typeof LNCFactory);
+        log('[DEBUG] LNCFactory.length:', LNCFactory.length);
+        log('[DEBUG] LNCFactory.toString():', LNCFactory.toString().slice(0,200));
+        // Fetch WASM as Uint8Array
+        log(`[INFO] Fetching WASM from: ${wasmUrl}`);
+        try {
+          resp = await fetch(wasmUrl);
+        } catch (fetchErr) {
+          logError('[ERROR] Fetch threw:', fetchErr && (fetchErr.stack || fetchErr.message || fetchErr));
+          throw fetchErr;
+        }
+        log('[DEBUG] WASM fetch response:', resp && {ok: resp.ok, status: resp.status, statusText: resp.statusText, url: resp.url});
+        if (!resp.ok) {
+          logError('[DEBUG] WASM fetch failed:', resp.status, resp.statusText, 'URL:', wasmUrl);
+          throw new Error('Failed to fetch WASM: ' + resp.status + ' ' + resp.statusText + ' ' + wasmUrl);
+        }
+        try {
+          wasmBytes = new Uint8Array(await resp.arrayBuffer());
+        } catch (abErr) {
+          logError('[ERROR] Reading arrayBuffer failed:', abErr && (abErr.stack || abErr.message || abErr));
+          throw abErr;
+        }
+        log('[INFO] WASM loaded, instantiating client...');
+        // Instantiate client with WASM bytes
+        try {
+          client = LNCFactory({ wasmClientCode: wasmBytes });
+        } catch (clientErr) {
+          logError('[ERROR] LNCFactory instantiation failed:', clientErr && (clientErr.stack || clientErr.message || clientErr));
+          throw clientErr;
+        }
+        log('[DEBUG] client keys:', Object.keys(client));
+        log('[DEBUG] client props:', Object.getOwnPropertyNames(client));
+        if (client.setLogLevel) client.setLogLevel(logLevel);
+        log(`[INFO] Set WASM log level: ${logLevel}`);
+        if (serverEndpoint) {
+          log('[INFO] Setting client.serverHost:', serverEndpoint);
+          client.serverHost = serverEndpoint;
+        }
+        if (originHeader) {
+          log('[INFO] Setting client.origin:', originHeader);
+          client.origin = originHeader;
+        }
+        log('[INFO] Connecting with pairing phrase:', pairingPhrase);
+        try {
+          inst = await client.connect(pairingPhrase);
+        } catch (connErr) {
+          logError('[ERROR] client.connect() threw:', connErr && (connErr.stack || connErr.message || connErr));
+          // Log all client state on failure
+          log('[DEBUG] client after failed connect:', client);
+          throw connErr;
+        }
+        log('[SUCCESS] Connected!');
+        log('LNC instance:', inst);
+        log('has on():', typeof inst.on);
+        log('has subscribe():', typeof inst.subscribe);
+        log('proto keys:', Object.getOwnPropertyNames(Object.getPrototypeOf(inst)));
+        log('TypeScript keys:', Object.keys(inst));
+        // Try event API
+        if (typeof inst.on === 'function') {
+          log('[INFO] Subscribing to stateChanged via .on');
+          inst.on('stateChanged', state => log('[EVENT] stateChanged', state));
+        } else if (typeof inst.subscribe === 'function') {
+          log('[INFO] Subscribing to stateChanged via .subscribe');
+          inst.subscribe('stateChanged', state => log('[EVENT] stateChanged', state));
+        } else {
+          logError('No .on() or .subscribe() found on instance!');
+        }
+      } catch (err) {
+        logError('[ERROR] LNC.connect() failed:', err && (err.stack || err.message || err));
+        // Log stack if available
+        if (err && err.stack) {
+          logError('[ERROR] Stack trace:', err.stack);
+        }
+      }
+    };
+  </script>
+</body>
+</html>

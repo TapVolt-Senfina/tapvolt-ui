@@ -1,7 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
 import './App.css';
 import { Buffer } from 'buffer';
 import LNC, { taprpc } from '@lightninglabs/lnc-web';
+import { StoreProvider, StoreContext } from './context/StoreContext';
+import useLnc from './hooks/useLnc';
+import LncSessionControls from './components/LncSessionControls';
 
 // Define expected numeric values based on .proto definitions
 const ASSET_TYPE_NORMAL_NUM = 0;
@@ -10,6 +13,16 @@ const ASSET_VERSION_V0_NUM = 0;
 const META_TYPE_OPAQUE_NUM = 0;
 
 function App() {
+  const root = useContext(StoreContext);
+  const auth = root.auth;
+
+  // Use the new useLnc session hook
+  const lncState = useLnc();
+
+  useEffect(() => {
+    auth.init();
+  }, [auth]);
+
   const [lnc, setLNC] = useState(null); // Stores the *active* LNC instance
   const [isConnected, setIsConnected] = useState(false); // Track connection status explicitly
   const [assets, setAssets] = useState([]);
@@ -28,6 +41,55 @@ function App() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true); // Track initial load state
 
+  // MobX AuthStore state
+  // Hardcoded phrase for rapid testing
+  const [loginInput, setLoginInput] = useState('buffalo very rotate mind hobby embrace supreme drive target recycle');
+  const [loginError, setLoginError] = useState('');
+
+  // Show login form if not authenticated
+  if (!auth.authenticated) {
+    // Auto-submit login on mount
+    useEffect(() => {
+      let cancelled = false;
+      (async () => {
+        setLoginError('');
+        try {
+          await auth.login(loginInput);
+        } catch (err) {
+          if (!cancelled) setLoginError(err.message || 'Login failed');
+        }
+      })();
+      return () => { cancelled = true; };
+    }, [auth, loginInput]);
+
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100">
+        <form className="bg-white p-6 rounded shadow-md" onSubmit={async e => {
+          e.preventDefault();
+          setLoginError('');
+          try {
+            await auth.login(loginInput);
+          } catch (err) {
+            setLoginError(err.message || 'Login failed');
+          }
+        }}>
+          <h2 className="mb-4 font-bold text-lg">Connect with Pairing Phrase</h2>
+          <input
+            type="text"
+            value={loginInput}
+            onChange={e => setLoginInput(e.target.value)}
+            className="border p-2 rounded w-full mb-2"
+            placeholder="Enter pairing phrase or password"
+            required
+          />
+          <button className="w-full py-2 px-4 rounded bg-blue-600 text-white font-bold" type="submit">Connect</button>
+          {loginError && <div className="mt-2 text-red-600">{loginError}</div>}
+          {auth.errors.main && <div className="mt-2 text-red-600">{auth.errors.main}</div>}
+        </form>
+      </div>
+    );
+  }
+
   // Mint Asset Form State
   const [mintAssetName, setMintAssetName] = useState('');
   const [mintAssetAmount, setMintAssetAmount] = useState('');
@@ -44,6 +106,9 @@ function App() {
   const [fundChannelError, setFundChannelError] = useState(null);
   const [fundChannelSuccess, setFundChannelSuccess] = useState(null);
   const [isFunding, setIsFunding] = useState(false);
+
+  // --- LNC Session Controls ---
+  // Show session controls at the top of the main app UI
 
   // Toggle dark mode
   const toggleDarkMode = () => {
@@ -415,20 +480,18 @@ function App() {
                         <div key={index} className="p-3 rounded-lg transition-colors duration-200" style={{ backgroundColor: 'var(--bg-card)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.05)' : 'var(--border-color)'}`, boxShadow: darkMode ? '0 2px 5px rgba(0, 0, 0, 0.2)' : '0 1px 3px rgba(0, 0, 0, 0.05)' }}> <div className="flex justify-between items-center"><span className="font-medium" style={{ color: 'var(--text-primary)' }}>{asset.name}</span><span style={{ color: 'var(--text-secondary)' }}>{asset.amount} units</span></div> <div className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>Type: <span className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: 'var(--badge-bg)' }}>{getEnumName(taprpc?.AssetType, asset.assetType)}</span> | Version: <span className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: 'var(--badge-bg)' }}>{getEnumName(taprpc?.AssetVersion, asset.assetVersion)}</span></div> {asset.assetMeta && <p className="text-xs mt-1 truncate" style={{ color: 'var(--text-secondary)' }} title={asset.assetMeta}>Meta: {asset.assetMeta}</p>} </div> ))}
                     </div> <div className="flex flex-col sm:flex-row gap-3"> <button className="flex-1 py-2 px-4 rounded-md font-medium transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]" style={{ backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'white', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'var(--border-color)'}`, boxShadow: darkMode ? 'none' : '0 1px 3px rgba(0, 0, 0, 0.1)', opacity: isMinting ? '0.7' : '1', cursor: isMinting ? 'not-allowed' : 'pointer' }} onClick={cancelBatch} disabled={isMinting}>Cancel Batch</button> <button className="flex-1 py-2 px-4 rounded-md font-medium text-white transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]" style={{ background: 'linear-gradient(135deg, #10b981, #059669)', boxShadow: darkMode ? '0 4px 12px rgba(16, 185, 129, 0.3)' : '0 4px 12px rgba(16, 185, 129, 0.2)', opacity: isMinting ? '0.7' : '1', cursor: isMinting ? 'not-allowed' : 'pointer' }} onClick={finalizeBatch} disabled={isMinting}>{isMinting ? 'Processing...' : 'Finalize Batch'}</button> </div>
                  </section> )}
-             </div>
-             <div className="space-y-8">
-                 <section> <h2 className="text-2xl font-bold mb-5" style={{ color: 'var(--text-primary)' }}>Owned Assets</h2> {assets.length > 0 ? ( <div className="grid grid-cols-1 gap-4 max-h-[600px] overflow-y-auto pr-2"> {assets.map((item, index) => { const type = getEnumName(taprpc?.AssetType, item.assetType); const ver = getEnumName(taprpc?.AssetVersion, item.version); const id = item.assetGenesis?.assetIdStr || item.assetGenesis?.assetId || 'N/A'; return ( <div key={index} className="rounded-lg p-4 transition-all duration-300 transform hover:scale-[1.01]" style={{ backgroundColor: 'var(--bg-card)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.05)' : 'var(--border-color)'}`, boxShadow: darkMode ? '0 4px 8px rgba(0, 0, 0, 0.2)' : '0 1px 3px rgba(0, 0, 0, 0.1)' }}> <p className="font-semibold mb-2 truncate" style={{ color: 'var(--text-primary)' }} title={item.assetGenesis?.name}>{item.assetGenesis?.name || 'Unnamed Asset'}</p> <div className="space-y-1 text-sm" style={{ color: 'var(--text-secondary)' }}> <p>Amount: <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{item.amount?.toString() || 'N/A'}</span></p> <div className="flex flex-wrap gap-2"><span className="px-2 py-0.5 rounded text-xs" style={{ backgroundColor: 'var(--badge-bg)' }}>Type: {type}</span><span className="px-2 py-0.5 rounded text-xs" style={{ backgroundColor: 'var(--badge-bg)' }}>Version: {ver}</span></div> <p className="text-xs break-all pt-1" title={id}>ID: <span style={{ fontFamily: 'monospace' }}>{id}</span></p> <p className="text-xs">Anchor Height: <span style={{ fontFamily: 'monospace' }}>{item.chainAnchor?.blockHeight || 'Unconfirmed'}</span></p> </div> {type === 'COLLECTIBLE' && item.decodedMeta && ( <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--border-color)' }}> <p className="font-medium text-sm mb-1" style={{ color: 'var(--text-primary)' }}>Decoded Metadata</p> {item.decodedMeta.startsWith('data:image') ? <img src={item.decodedMeta} alt="Preview" className="max-w-full h-auto rounded border" style={{ borderColor: 'var(--border-color)' }} onError={(e) => { e.target.style.display='none'; e.target.nextElementSibling.style.display='block'; }}/> : null} <pre className="text-xs p-2 rounded overflow-auto max-h-28 border" style={{ display: item.decodedMeta.startsWith('data:image') ? 'none' : 'block', backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)', borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}>{item.decodedMeta}</pre> </div> )} </div> ); })} </div> ) : (<p style={{ color: 'var(--text-secondary)' }}>No assets found.</p>)} </section>
-                 {assets?.length > 0 && ( <section> <h2 className="text-2xl font-bold mb-5" style={{ color: 'var(--text-primary)' }}>Fund Asset Channel</h2> <form onSubmit={fundChannel} className="rounded-xl p-6 transition-colors duration-300" style={{ backgroundColor: 'var(--form-bg)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'}`, boxShadow: darkMode ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.05)' }}> <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"> <div className="mb-4 sm:mb-0"><label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Asset Amount</label><input className="w-full px-3 py-2 rounded-md transition-colors duration-200" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }} type="number" placeholder="e.g., 100" value={assetAmount} onChange={(e) => setAssetAmount(e.target.value)} required disabled={isFunding} /></div> <div className="mb-4 sm:mb-0"><label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Fee Rate (sat/vB)</label><input className="w-full px-3 py-2 rounded-md transition-colors duration-200" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }} type="number" placeholder="e.g., 10" value={feeRateSatPerVbyte} onChange={(e) => setFeeRateSatPerVbyte(e.target.value)} required disabled={isFunding} min="1" /></div> </div> <div className="mt-4"><label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Asset ID (Hex)</label><input className="w-full px-3 py-2 rounded-md transition-colors duration-200 font-mono text-xs" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }} type="text" placeholder="Paste Asset ID hex..." value={assetId} onChange={(e) => setAssetId(e.target.value)} required disabled={isFunding} /></div> <div className="mt-4 mb-6"><label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Peer Public Key (Hex)</label><input className="w-full px-3 py-2 rounded-md transition-colors duration-200 font-mono text-xs" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }} type="text" placeholder="Paste Peer Pubkey hex..." value={peerPubkey} onChange={(e) => setPeerPubkey(e.target.value)} required disabled={isFunding} /></div>
-                    <button className="w-full py-2 px-4 rounded-md font-medium text-white transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]" style={{ background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', boxShadow: darkMode ? '0 4px 12px rgba(59, 130, 246, 0.3)' : '0 4px 12px rgba(59, 130, 246, 0.2)', opacity: isFunding ? '0.7' : '1', cursor: isFunding ? 'not-allowed' : 'pointer' }} type="submit" disabled={isFunding}>{isFunding ? 'Initiating Funding...' : 'Fund Channel'}</button>
-                    {fundChannelError && <div className="mt-4 p-3 rounded-md text-sm" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', border: `1px solid ${darkMode ? 'rgba(220, 38, 38, 0.3)' : 'rgba(220, 38, 38, 0.2)'}` }}>{fundChannelError}</div>} {fundChannelSuccess && <div className="mt-4 p-3 rounded-md text-sm" style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-text)', border: `1px solid ${darkMode ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.2)'}` }}>{fundChannelSuccess}</div>}
-                 </form> </section> )}
-             </div>
-        </div> </div>
-        <footer className="px-6 py-4 border-t text-center text-xs" style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}> <p>Taproot Assets Demo v1.0.3</p> </footer>
       </div>
       <style jsx>{` @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } } @keyframes pulse-slow { 0% { opacity: 0.2; } 50% { opacity: 0.3; } 100% { opacity: 0.2; } } .animate-float { animation: float 4s ease-in-out infinite; } .animate-pulse-slow { animation: pulse-slow 3s ease-in-out infinite; } `}</style>
     </div>
   );
 }
 
-export default App;
+// ... rest of the code ...
+// Wrap the App in StoreProvider for context
+const AppWithProvider = () => (
+  <StoreProvider>
+    <App />
+  </StoreProvider>
+);
+
+export default AppWithProvider;

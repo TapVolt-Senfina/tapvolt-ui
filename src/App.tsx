@@ -30,35 +30,57 @@ const DarkModeToggle: React.FC = () => {
 
 const App: React.FC = () => {
   const {
-    isInitializing, isConnecting, isConnected,
-    batchAssets, assets, lncState,   // <- whatever you expose
-  } = useLnc();                       // global connection state
-
-  if (isInitializing || isConnecting) return <LoadingScreen />;
+    lnc,
+    isConnected,
+    isConnecting,
+    isInitializing,
+    assets,
+    batchAssets,
+    connect,
+    mintAsset,
+    finalizeBatch,
+    cancelBatch,
+    fundChannel,
+  } = useLnc();
 
   return (
     <DarkModeProvider>
       <DarkModeToggle />
-      <LncProvider value={lncState}>
-        {isConnected ? (
-          <main className="min-h-screen p-4 sm:p-6 lg:p-8 bg-primary text-primary">
-            <DashboardHeader />
-            <section className="grid lg:grid-cols-2 gap-8">
-              <div className="space-y-8">
-                <MintAssetForm />
-                {batchAssets.length > 0 && <PendingBatch />}
-              </div>
-
-              <div className="space-y-8">
-                <AssetList assets={assets} />
-                {assets.length > 0 && <FundChannelForm />}
-              </div>
-            </section>
-          </main>
-        ) : (
-          <ConnectionForm />
-        )}
-      </LncProvider>
+      {isInitializing || isConnecting ? (
+        <LoadingScreen />
+      ) : (
+        <LncProvider value={{
+          lnc,
+          isConnected,
+          isConnecting,
+          isInitializing,
+          assets,
+          batchAssets,
+          connect,
+          mintAsset,
+          finalizeBatch,
+          cancelBatch,
+          fundChannel,
+        }}>
+          {isConnected ? (
+            <main className="min-h-screen p-4 sm:p-6 lg:p-8 bg-primary text-primary">
+              <DashboardHeader />
+              <section className="grid lg:grid-cols-2 gap-8">
+                <div className="space-y-8">
+                  <MintAssetForm />
+                  {batchAssets.length > 0 && <PendingBatch />}
+                </div>
+                <div className="space-y-8">
+                  <AssetList assets={assets} />
+                  {assets.length > 0 && <FundChannelForm />}
+                </div>
+              </section>
+            </main>
+          ) : (
+            <ConnectionForm />
+          )}
+        </LncProvider>
+      )}
     </DarkModeProvider>
   );
 };
