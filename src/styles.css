@@ -1,0 +1,94 @@
+/* File: src/styles.css  (imported once in App.tsx)
+   Place your current CSS vars + Tailwind directives here. */
+:root {
+  --bg-primary: #f4f8fb;
+  --bg-secondary: #ffffff;
+  --bg-card: #f7faff;
+  --form-bg: #f0f4fa;
+  --input-bg: #f9fbfd;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --border: #cbd5e1;
+  --border-color: #cbd5e1;
+  --batch: #e0e7ef;
+  --badge-bg: #e0e7ef;
+  --success-bg: #def7ec;
+  --success-text: #03543f;
+  --error-bg: #fde2e1;
+  --error-text: #b91c1c;
+}
+.dark-mode {
+  --bg-primary: #101624;
+  --bg-secondary: #1a2233;
+  --bg-card: #171e2b;
+  --form-bg: #161d2b;
+  --input-bg: #232b3b;
+  --text-primary: #f1f5f9;
+  --text-secondary: #a0aec0;
+  --border: #293042;
+  --border-color: #293042;
+  --batch: #232b3b;
+  --badge-bg: #232b3b;
+  --success-bg: #184d3a;
+  --success-text: #6ee7b7;
+  --error-bg: #4b1e1e;
+  --error-text: #fca5a5;
+}
+body { background: var(--bg-primary); color: var(--text-primary); }
+.bg-primary { background-color: #2563eb !important; } /* Strong blue for buttons */
+.text-primary { color: #1e293b !important; } /* Deep navy for headings/buttons */
+.border-border { border-color: var(--border); }
+.bg-batch { background-color: var(--batch); }
+.gradient-bg {
+  background: linear-gradient(135deg, var(--bg-primary) 60%, var(--bg-secondary) 100%);
+}
+
+/* Button override for white text on blue */
+button.bg-primary, .bg-primary button, .bg-primary input[type='submit'] {
+  background-color: #2563eb !important;
+  color: #fff !important;
+  border: none;
+}
+
+/* Secondary buttons in light mode */
+body:not(.dark-mode) .bg-secondary, body:not(.dark-mode) .dark\:bg-secondary {
+  background: #f1f5f9 !important;
+  color: #1e293b !important;
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  color: #1e293b;
+}
+
+/* Input placeholders */
+input::placeholder {
+  color: #64748b;
+  opacity: 1;
+}
+
+/* Floating dark mode toggle button */
+.theme-toggle {
+  position: fixed;
+  top: 1.5rem;
+  right: 1.5rem;
+  z-index: 50;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(30, 41, 59, 0.07);
+  cursor: pointer;
+  font-size: 1.5rem;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+}
+.theme-toggle:hover {
+  background: var(--bg-secondary);
+  color: #fbbf24;
+  box-shadow: 0 4px 16px rgba(30, 41, 59, 0.12);
+}

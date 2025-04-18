@@ -1,38 +1,40 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
 import { Buffer } from 'buffer';
-// Correct: Use default import for LNC and named import for taprpc
 import LNC, { taprpc } from '@lightninglabs/lnc-web';
 
 // Define expected numeric values based on .proto definitions
 const ASSET_TYPE_NORMAL_NUM = 0;
 const ASSET_TYPE_COLLECTIBLE_NUM = 1;
-const ASSET_VERSION_V0_NUM = 0; // Use V0 based on tapcli success
-const META_TYPE_OPAQUE_NUM = 0; // Based on taprpc.AssetMetaType
-
+const ASSET_VERSION_V0_NUM = 0;
+const META_TYPE_OPAQUE_NUM = 0;
 
 function App() {
-  const [lnc, setLNC] = useState(null); // Initialize with null
+  const [lnc, setLNC] = useState(null); // Stores the *active* LNC instance
+  const [isConnected, setIsConnected] = useState(false); // Track connection status explicitly
   const [assets, setAssets] = useState([]);
-  const [batchAssets, setBatchAssets] = useState([]); 
+  const [batchAssets, setBatchAssets] = useState([]);
   const [nodeChannels, setChannels] = useState([]);
-  const [nodeInfo, setNodeInfo] = useState(null); // Initialize with null
+  const [nodeInfo, setNodeInfo] = useState(null);
+  const [darkMode, setDarkMode] = useState(() => {
+    const savedMode = localStorage.getItem('darkMode');
+    return savedMode ? JSON.parse(savedMode) : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
 
   // LNC Connection Form State
   const [pairingPhrase, setPairingPhrase] = useState('');
   const [password, setPassword] = useState('');
   const [connectionError, setConnectionError] = useState(null);
-  const [isConnecting, setIsConnecting] = useState(false); // Add connecting state
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true); // Track initial load state
 
-    // Mint Asset Form State - Keep inputs but values might be ignored for testing
+  // Mint Asset Form State
   const [mintAssetName, setMintAssetName] = useState('');
   const [mintAssetAmount, setMintAssetAmount] = useState('');
-  const [mintAssetMeta, setMintAssetMeta] = useState(''); // Re-enable meta input
+  const [mintAssetMeta, setMintAssetMeta] = useState('');
   const [mintAssetError, setMintAssetError] = useState(null);
   const [mintAssetSuccess, setMintAssetSuccess] = useState(null);
-  const [isMinting, setIsMinting] = useState(false); // Add minting state
-
-
+  const [isMinting, setIsMinting] = useState(false);
 
   // Fund Channel Form State
   const [assetAmount, setAssetAmount] = useState('');
@@ -43,732 +45,388 @@ function App() {
   const [fundChannelSuccess, setFundChannelSuccess] = useState(null);
   const [isFunding, setIsFunding] = useState(false);
 
+  // Toggle dark mode
+  const toggleDarkMode = () => {
+    const newMode = !darkMode;
+    setDarkMode(newMode);
+    localStorage.setItem('darkMode', JSON.stringify(newMode));
+  };
+
+  // Apply dark mode styles
+  useEffect(() => {
+    document.body.classList.toggle('dark-mode', darkMode);
+    const root = document.documentElement;
+    const colors = darkMode
+      ? { // Dark mode colors
+          '--bg-primary': '#121212', '--bg-secondary': '#1e1e1e', '--bg-card': '#252525',
+          '--text-primary': '#e0e0e0', '--text-secondary': '#a0a0a0', '--border-color': '#333333',
+          '--accent-light': '#4f46e5', '--accent-dark': '#3730a3', '--success-bg': '#064e3b',
+          '--success-text': '#10b981', '--error-bg': '#7f1d1d', '--error-text': '#f87171',
+          '--form-bg': '#1f1f1f', '--batch-bg': '#172554', '--batch-border': '#1e3a8a',
+          '--input-bg': '#2a2a2a', '--badge-bg': '#333333'
+        }
+      : { // Light mode colors
+          '--bg-primary': '#f9fafb', '--bg-secondary': '#ffffff', '--bg-card': '#ffffff',
+          '--text-primary': '#1f2937', '--text-secondary': '#6b7280', '--border-color': '#e5e7eb',
+          '--accent-light': '#4f46e5', '--accent-dark': '#3730a3', '--success-bg': '#ecfdf5',
+          '--success-text': '#047857', '--error-bg': '#fef2f2', '--error-text': '#b91c1c',
+          '--form-bg': '#f8fafc', '--batch-bg': '#eff6ff', '--batch-border': '#bfdbfe',
+          '--input-bg': '#ffffff', '--badge-bg': '#f3f4f6'
+        };
+    Object.entries(colors).forEach(([key, value]) => root.style.setProperty(key, value));
+  }, [darkMode]);
+
+  // Helper function to attach listeners to a confirmed LNC instance
+  const attachLncListeners = useCallback((lncInstance) => {
+    if (!lncInstance || typeof lncInstance.on !== 'function') {
+        console.error("Cannot attach listeners: LNC instance is invalid or does not have an 'on' method.", lncInstance);
+        // Set error state appropriate for this failure
+        setConnectionError("Failed to initialize LNC event listeners.");
+        setIsConnected(false); // Ensure we are marked as disconnected
+        setLNC(null); // Clear potentially invalid instance
+        return;
+    }
+
+    console.log("Attaching LNC event listeners...");
+
+    // Remove previous listeners if any were attached to this specific instance object
+    // Note: LNC might not expose a robust way to remove specific listeners by function reference.
+    // Relying on instance replacement might be the primary cleanup mechanism.
+    // lncInstance.off might not exist or work as expected.
+
+    lncInstance.on('connected', () => {
+      console.log('LNC connected event fired.');
+      setIsConnected(true);
+      setConnectionError(null);
+    });
+
+    lncInstance.on('disconnected', () => {
+      console.log('LNC disconnected event fired.');
+      setIsConnected(false);
+      // setConnectionError("LNC disconnected."); // Optional: notify user
+      setLNC(null); // Clear the instance on disconnect
+      // Clear data
+       setNodeInfo(null); setChannels([]); setAssets([]); setBatchAssets([]);
+    });
+
+    lncInstance.on('error', (error) => {
+      console.error('LNC error event:', error);
+      setConnectionError(`LNC runtime error: ${error?.message || 'Unknown error'}`);
+      // Optionally disconnect on certain errors
+      // setIsConnected(false); setLNC(null);
+    });
+
+    // Recheck readiness after attaching listeners, especially for auto-connect cases
+    if (lncInstance.isReady) {
+        console.log("Instance confirmed ready after attaching listeners.");
+        setIsConnected(true); // Ensure state reflects readiness
+    }
+
+  }, []); // Add any state setters used inside if needed, e.g. [setIsConnected, setConnectionError, setLNC]
+
+  // Function to attempt initialization from storage
+  const attemptAutoConnect = useCallback(async () => {
+      setIsInitializing(true);
+      setConnectionError(null);
+      console.log('Attempting to initialize LNC from storage...');
+      if (!LNC) {
+          console.error("LNC constructor not available.");
+          setConnectionError('LNC library failed to load.');
+          setIsInitializing(false);
+          return;
+      }
+      let lncInstance;
+      try {
+          lncInstance = new LNC({});
+
+          if (lncInstance.isReady) {
+              console.log('LNC is ready (loaded from storage). Attaching listeners and setting active.');
+              // Attach listeners *after* confirming readiness
+              attachLncListeners(lncInstance);
+              setLNC(lncInstance); // Set the ready instance
+             // setIsConnected will be set by the listener attachment logic or 'connected' event
+          } else {
+              console.log('LNC is not ready from storage.');
+              setLNC(null);
+              setIsConnected(false);
+          }
+      } catch (error) {
+          console.error('Failed to initialize LNC from storage:', error);
+          setConnectionError('Failed to check LNC session state.');
+          setLNC(null);
+          setIsConnected(false);
+      } finally {
+          setIsInitializing(false);
+      }
+  }, [attachLncListeners]); // Add attachLncListeners dependency
+
+  // Attempt auto-connect on component mount
+  useEffect(() => {
+      attemptAutoConnect();
+      // Cleanup function
+      return () => {
+          if (lnc) {
+              console.log("Cleaning up LNC instance on unmount.");
+              // LNC doesn't have a standard way to remove all listeners ('off' might not exist/work)
+              // Rely on disconnect to stop events and instance replacement for listener management
+              lnc.disconnect();
+          }
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attemptAutoConnect]); // Run only once on mount
+
+  // Handle the connection form submission (Explicit Connect)
   const handleConnect = async (event) => {
     event.preventDefault();
+    if (!pairingPhrase.trim()) {
+        setConnectionError("Pairing phrase cannot be empty.");
+        return;
+    }
     setConnectionError(null);
-    setIsConnecting(true); // Set connecting state
+    setIsConnecting(true);
+
+    console.log('Explicit connection attempt initiated...');
+
+    // Disconnect any existing instance
+    if (lnc) {
+        console.log('Disconnecting previous LNC instance...');
+        // Remove listeners maybe? LNC library might not support .off() reliably.
+        // Rely on disconnect() and creating a new instance.
+        lnc.disconnect();
+        setLNC(null);
+        setIsConnected(false);
+    }
+
+    let newLncInstance;
     try {
-      // Verify LNC is available before constructing
-      if (!LNC) {
-          throw new Error("LNC constructor is not available. Check library import and installation.");
-      }
-      console.log('Attempting to instantiate LNC...');
-      const lncInstance = new LNC({
+      console.log('Creating new LNC instance for connection...');
+      newLncInstance = new LNC({
         pairingPhrase: pairingPhrase,
-        //password: password,
-        // Optionally add other configuration like workerPath if needed
+        // password: password, // Add password if using it
       });
-      console.log('LNC instance created, attempting to connect...');
-      await lncInstance.connect();
-      console.log('LNC connected successfully.');
-      setLNC(lncInstance);
+
+      console.log('Attempting to connect new LNC instance...');
+      await newLncInstance.connect();
+      console.log('LNC connect() method resolved successfully.');
+
+      // Attach listeners *after* successful connection
+      attachLncListeners(newLncInstance);
+      setLNC(newLncInstance); // Store the successfully connected instance
+      setIsConnected(true); // Explicitly set connected as connect() succeeded
+      setConnectionError(null);
+
     } catch (error) {
-      console.error('LNC connection error:', error);
-      setConnectionError(error.message || 'Failed to connect. Please check your credentials or LNC setup.');
+      console.error('LNC connection error during explicit connect:', error);
+      const message = error.message || 'Failed to connect. Please check pairing phrase or proxy server.';
+      setConnectionError(message);
+      setIsConnected(false);
+      setLNC(null);
+      if (newLncInstance) {
+          // Attempt cleanup even if connect failed mid-way
+          newLncInstance.disconnect();
+      }
     } finally {
-      setIsConnecting(false); // Reset connecting state
+      setIsConnecting(false);
     }
   };
 
+  // Fetch data when LNC is connected AND the instance exists
   useEffect(() => {
-    // Fetch data only if LNC object exists and seems ready
-    if (lnc && lnc.isReady) {
-      console.log('LNC ready, fetching node data...');
-      console.log(lnc.tapd.tapChannels)
+    if (isConnected && lnc) {
+      console.log('LNC connected state is true, fetching node data...');
       getInfo();
       listChannels();
       listAssets();
       listBatches();
+    } else {
+      console.log('LNC disconnected or instance null, clearing data.');
+      setNodeInfo(null); setChannels([]); setAssets([]); setBatchAssets([]);
     }
-  }, [lnc]); // Rerun when lnc state changes
+  }, [isConnected, lnc]); // Rerun when isConnected or lnc instance changes
 
+
+  // --- Data Fetching Functions ---
   const getInfo = async () => {
-    if (!lnc || !lnc.lnd || !lnc.lnd.lightning) {
-        console.error("LNC or LND lightning service not initialized for getInfo");
-        return;
-    }
-    const { lightning } = lnc.lnd;
-    try {
-        const info = await lightning.getInfo();
-        setNodeInfo(info);
-        console.log("Node Info:", info);
-    } catch(error) {
-        console.error("Failed to get node info:", error);
-        setNodeInfo(null); // Reset on error
-    }
+    if (!lnc || !isConnected || !lnc.lnd || !lnc.lnd.lightning) { console.warn("LNC not ready for getInfo."); return; }
+    console.log("Attempting to get node info...");
+    try { const info = await lnc.lnd.lightning.getInfo(); setNodeInfo(info); console.log("Node Info fetched:", info); }
+    catch(error) { console.error("Failed to get node info:", error); setNodeInfo(null); }
   };
-
   const listChannels = async () => {
-    if (!lnc || !lnc.lnd || !lnc.lnd.lightning) {
-        console.error("LNC or LND lightning service not initialized for listChannels");
-        return;
-    }
-    const { lightning } = lnc.lnd;
-    try {
-        const channelsResponse = await lightning.listChannels();
-        console.log("Channels Response:", channelsResponse);
-        // Ensure channelsResponse.channels is an array before setting
-        setChannels(Array.isArray(channelsResponse?.channels) ? channelsResponse.channels : []);
-    } catch (error) {
-        console.error("Failed to list channels:", error);
-        setChannels([]); // Set to empty array on error
-    }
+    if (!lnc || !isConnected || !lnc.lnd || !lnc.lnd.lightning) { console.warn("LNC not ready for listChannels."); return; }
+    console.log("Attempting to list channels...");
+    try { const r = await lnc.lnd.lightning.listChannels(); setChannels(Array.isArray(r?.channels) ? r.channels : []); }
+    catch (error) { console.error("Failed to list channels:", error); setChannels([]); }
   };
-
   const listAssets = async () => {
-    if (!lnc || !lnc.tapd || !lnc.tapd.taprootAssets) {
-        console.error("LNC or Taproot Assets service not initialized for listAssets");
-        return;
-    }
+    if (!lnc || !isConnected || !lnc.tapd || !lnc.tapd.taprootAssets) { console.warn("LNC not ready for listAssets."); return; }
+    console.log("Attempting to list assets...");
     const { taprootAssets } = lnc.tapd;
     try {
-        // Add necessary flags if needed, like include_unconfirmed_mints: true
         const assetsTap = await taprootAssets.listAssets({ include_unconfirmed_mints: true });
-        console.log("Assets Response:", assetsTap);
         let assetsArr = [];
-        if (assetsTap && Array.isArray(assetsTap.assets)) {
+        if (assetsTap?.assets) {
             for (let asset of assetsTap.assets) {
-                // Safely access assetType and assetIdStr
-                const assetTypeNum = asset?.assetType; // This might be the number or string from API
-                // Prefer assetIdStr if available, otherwise use assetId
+                const assetTypeNum = asset?.assetType;
                 const assetIdForMeta = asset?.assetGenesis?.assetIdStr || asset?.assetGenesis?.assetId;
-
-                // Check if the type matches the expected numeric value for COLLECTIBLE
                 if (assetTypeNum === ASSET_TYPE_COLLECTIBLE_NUM && assetIdForMeta) {
                    try {
                      const meta = await taprootAssets.fetchAssetMeta({ asset_id_str: assetIdForMeta });
-                     if (meta && meta.data) {
-                       // Attempt to decode as UTF8, adjust if meta can be binary/image data directly
-                       const decodedMeta = Buffer.from(meta.data).toString('utf8');
-                       assetsArr.push({ ...asset, decodedMeta });
-                     } else {
-                       assetsArr.push(asset); // Add asset even if meta fetch fails or has no data
-                     }
-                   } catch (metaError) {
-                      console.error(`Failed to fetch meta for asset ${assetIdForMeta}:`, metaError);
-                      assetsArr.push(asset); // Add asset even if meta fetch fails
-                   }
-                } else {
-                    assetsArr.push(asset);
-                }
+                     const decodedMeta = meta?.data ? Buffer.from(meta.data).toString('utf8') : '';
+                     assetsArr.push({ ...asset, decodedMeta });
+                   } catch (metaError) { console.error(`Failed fetch meta ${assetIdForMeta}:`, metaError); assetsArr.push(asset); }
+                } else { assetsArr.push(asset); }
             }
-        }
-        setAssets(assetsArr);
-    } catch (error) {
-        console.error("Failed to list assets:", error);
-        setAssets([]); // Set to empty array on error
-    }
+        } setAssets(assetsArr);
+    } catch (error) { console.error("Failed to list assets:", error); setAssets([]); }
   };
   const listBatches = async () => {
-    if (!lnc || !lnc.tapd || !lnc.tapd.mint) {
-      setMintAssetError("LNC or Taproot Mint service not initialized.");
-      setIsMinting(false);
-      return;
-    }
+    if (!lnc || !isConnected || !lnc.tapd || !lnc.tapd.mint) { console.warn("LNC not ready for listBatches."); return; }
+    console.log("Attempting to list batches...");
     const { mint } = lnc.tapd;
     try {
-      const assetsBatch = await mint.listBatches();
-      console.log(assetsBatch);
-      let formattedAssetsArray = [];
-      if (assetsBatch && Array.isArray(assetsBatch.batches) && assetsBatch.batches.length > 0) {
-        console.log(assetsBatch)
-        for(let batch of assetsBatch.batches){
-          /* All batches are saved in the node, their 'state' changes, it can be
-          FINISHED, PENDING or CANCELED */
-          if(batch.batch.state === "BATCH_STATE_PENDING"){
-            const formattedAssets = batch.batch.assets.map(asset => ({
-              name: asset.name,
-              amount: asset.amount,
-              assetVersion: asset.assetVersion,
-              assetType: asset.assetType,
-              assetMeta: asset.assetMeta?.data ? Buffer.from(asset.assetMeta.data, 'base64').toString('utf8') : '', // decode metadata
-            }));
-            console.log(formattedAssets)
-            formattedAssetsArray.push(formattedAssets);
-          }
-        }
-
-      
-        setBatchAssets(formattedAssetsArray);
-      } else {
-        setBatchAssets([]); // Set to empty array if no batches or assets
-      }
-    } catch (error) {
-      console.error("Failed to list batches:", error);
-      setBatchAssets([]); // Set to empty array on error
-    }
+      const r = await mint.listBatches(); let pending = [];
+      if (r?.batches) {
+        for(let b of r.batches){
+          if(["BATCH_STATE_PENDING", "BATCH_STATE_FROZEN", "BATCH_STATE_COMMITTED"].includes(b?.batch?.state)) {
+             const assets = b.batch.assets.map(a => ({ name: a.name, amount: a.amount?.toString(), assetVersion: a.assetVersion, assetType: a.assetType, assetMeta: a.assetMeta?.data ? Buffer.from(a.assetMeta.data).toString('utf8') : '' }));
+             pending.push(...assets); // Directly add assets to the flattened list
+          } } } setBatchAssets(pending);
+    } catch (error) { console.error("Failed list batches:", error); setBatchAssets([]); }
   };
 
+  // --- Minting and Batch Functions ---
   const mintAsset = async (event) => {
     event.preventDefault();
-    setMintAssetError(null);
-    setMintAssetSuccess(null);
-    setIsMinting(true); // Set minting state
-
-    // Basic check if lnc services exist
-    if (!lnc || !lnc.tapd || !lnc.tapd.mint) {
-        setMintAssetError("LNC or Taproot Mint service not initialized.");
-        setIsMinting(false);
-        return;
-    }
-
-    // Use the name from state, but sanitize it
-    const sanitizedName = mintAssetName.replace(/[\r\n]+/g, '').trim();
-    if (!sanitizedName) {
-        setMintAssetError("Asset name cannot be empty or contain only whitespace/newlines.");
-        setIsMinting(false);
-        return;
-    }
-
-    const amount = parseInt(mintAssetAmount, 10);
-    if (isNaN(amount) || amount <= 0) {
-        setMintAssetError("Invalid amount provided. Must be a positive number.");
-        setIsMinting(false);
-        return;
-    }
-
-    // Reintroduce metadata handling, ensuring data is Base64
-    let metaDataBytesBase64 = "";
-    const trimmedMeta = mintAssetMeta.trim();
-    if (trimmedMeta) {
-        try {
-            const sanitizedMeta = trimmedMeta.replace(/[\r\n]+/g, ''); // Sanitize meta too
-            metaDataBytesBase64 = Buffer.from(sanitizedMeta, 'utf8').toString('base64');
-             // Add console log to check the base64 string
-            console.log("Encoded Metadata (Base64):", metaDataBytesBase64);
-        } catch (bufferError) {
-            console.error("Error encoding metadata:", bufferError);
-            setMintAssetError("Failed to encode metadata.");
-            setIsMinting(false);
-            return;
-        }
-    } else {
-        // If no meta provided, send empty base64 string as data might be required
-        // OR omit asset_meta entirely. Let's try sending empty data first.
-        metaDataBytesBase64 = ""; // Represents empty bytes
-        console.log("No metadata provided, sending empty base64 string for data field.");
-    }
-
-
+    if (!lnc || !isConnected || !lnc.tapd?.mint) { setMintAssetError("LNC not connected or Mint service unavailable."); return; }
+    setMintAssetError(null); setMintAssetSuccess(null); setIsMinting(true);
+    const name = mintAssetName.replace(/[\r\n]+/g, '').trim(); if (!name) { setMintAssetError("Name required."); setIsMinting(false); return; }
+    const amount = parseInt(mintAssetAmount, 10); if (isNaN(amount) || amount <= 0) { setMintAssetError("Invalid amount."); setIsMinting(false); return; }
+    let metaB64 = ""; const meta = mintAssetMeta.trim();
+    if (meta) { try { metaB64 = Buffer.from(meta.replace(/[\r\n]+/g, ''), 'utf8').toString('base64'); } catch (e) { setMintAssetError("Meta encode fail."); setIsMinting(false); return; }}
     try {
-      const { mint } = lnc.tapd;
-
-      // Construct request, ensuring correct field names and data types
-      // Use snake_case for asset_meta and ensure data is base64 string
-      const request = {
-        asset: {
-          asset_version: ASSET_VERSION_V0_NUM,
-          asset_type: "NORMAL", // NORMAL OR COLLECTIBLE, need to implement for collectibles (an image or any doc)
-          name: sanitizedName,
-          amount: amount.toString(),
-          // Use snake_case for asset_meta field name
-          asset_meta: {
-              data: metaDataBytesBase64,      // Ensure this is a base64 string
-              type: META_TYPE_OPAQUE_NUM     // Use 0 (OPAQUE)
-          }
-        },
-        short_response: false,
-      };
-
-      console.log("Minting request (JS object, snake_case meta):", request);
-      console.log("Minting request (JSON):", JSON.stringify(request, null, 2));
-
-      const response = await mint.mintAsset(request);
-      console.log("Minting response:", response);
-
-       // Check response structure carefully based on actual successful response
-      if (response && response.pendingBatch && response.pendingBatch.batchKey) {
-        const batchKeyHex = Buffer.from(response.pendingBatch.batchKey).toString('hex');
-        setMintAssetSuccess(
-          `Asset minting initiated. Batch key: ${batchKeyHex}`
-        );
-        setMintAssetName('');
-        setMintAssetAmount('');
-        setMintAssetMeta(''); // Clear metadata field
-        listBatches();
-
-      } else {
-        // Check if there's an error field in the response itself
-        const backendError = response?.error || 'Unexpected response structure from server.';
-        console.error("Mint asset response invalid:", response);
-        setMintAssetError(`Failed to initiate asset minting. ${backendError}`);
-      }
-    } catch (error) {
-      console.error('Mint asset error:', error);
-      const errorMsg = error.message || 'Failed to mint asset. Unknown error.';
-      // Try to extract more details from the error object
-      const details = error.details || (error.toString ? error.toString() : 'No details available');
-      setMintAssetError(`Minting failed: ${errorMsg} (Details: ${details})`);
-    } finally {
-        setIsMinting(false); // Reset minting state
-    }
+      const req = { asset: { asset_version: ASSET_VERSION_V0_NUM, asset_type: ASSET_TYPE_NORMAL_NUM, name, amount: amount.toString(), asset_meta: { data: metaB64, type: META_TYPE_OPAQUE_NUM }}, short_response: false };
+      const res = await lnc.tapd.mint.mintAsset(req);
+      if (res?.pendingBatch?.batchKey) {
+        setMintAssetSuccess(`Added to batch: ${Buffer.from(res.pendingBatch.batchKey).toString('hex')}`);
+        setMintAssetName(''); setMintAssetAmount(''); setMintAssetMeta(''); listBatches();
+      } else { setMintAssetError(res?.error || 'Mint fail: Unexpected response.'); }
+    } catch (e) { console.error('Mint error:', e); setMintAssetError(`Mint fail: ${e.message || 'Unknown'}`); }
+    finally { setIsMinting(false); }
   };
   const finalizeBatch = async () => {
-    // Basic check if lnc services exist
-    if (!lnc || !lnc.tapd || !lnc.tapd.mint) {
-      setMintAssetError("LNC or Taproot Mint service not initialized.");
-      setIsMinting(false);
-      return;
-    }
-    const {mint} = lnc.tapd;
-    const batchResponse = await mint.finalizeBatch({
-      fee_rate: 253 //floor
-    });
-    console.log(batchResponse);
-    await listBatches();
+    if (!lnc || !isConnected || !lnc.tapd?.mint) { setMintAssetError("LNC not connected or Mint service unavailable."); return; }
+    setIsMinting(true); setMintAssetError(null); setMintAssetSuccess(null);
+    try {
+      const fee = 10; // Example
+      const res = await lnc.tapd.mint.finalizeBatch({ fee_rate: fee });
+      setMintAssetSuccess(`Batch finalize initiated. TXID: ${res?.batch?.batchTxid || 'N/A'}`);
+      setBatchAssets([]); setTimeout(listAssets, 3000);
+    } catch (e) { console.error("Finalize error:", e); setMintAssetError(`Finalize fail: ${e.message || 'Unknown'}`); }
+    finally { setIsMinting(false); }
   };
   const cancelBatch = async () => {
-    // Basic check if lnc services exist
-    if (!lnc || !lnc.tapd || !lnc.tapd.mint) {
-      setMintAssetError("LNC or Taproot Mint service not initialized.");
-      setIsMinting(false);
-      return;
-    }
-    const {mint} = lnc.tapd;
-    const batchResponse = await mint.cancelBatch({});
-    console.log(batchResponse);
-    await listBatches();
+     if (!lnc || !isConnected || !lnc.tapd?.mint) { setMintAssetError("LNC not connected or Mint service unavailable."); return; }
+     setIsMinting(true); setMintAssetError(null); setMintAssetSuccess(null);
+     try { await lnc.tapd.mint.cancelBatch({}); setMintAssetSuccess("Batch cancelled."); setBatchAssets([]); }
+     catch (e) { console.error("Cancel error:", e); setMintAssetError(`Cancel fail: ${e.message || 'Unknown'}`); }
+     finally { setIsMinting(false); }
   };
 
+  // --- Channel Funding Function ---
   const fundChannel = async (event) => {
-    if (event) event.preventDefault();
-    setFundChannelError(null);
-    setFundChannelSuccess(null);
-    setIsFunding(true);
-
-    if (!lnc || !lnc.tapd || !lnc.tapd.tapChannels) {
-      setFundChannelError("LNC or Taproot TapChannel service not initialized.");
-      setIsFunding(false);
-      return;
-    }
-
-    const { tapChannels } = lnc.tapd;
-
+    event.preventDefault();
+     if (!lnc || !isConnected || !lnc.tapd?.tapChannels) { setFundChannelError("LNC not connected or Channel service unavailable."); return; }
+     setFundChannelError(null); setFundChannelSuccess(null); setIsFunding(true);
+    const amt = parseInt(assetAmount, 10); const fee = parseInt(feeRateSatPerVbyte, 10);
+    if (isNaN(amt) || amt <= 0) { setFundChannelError("Bad Amount."); setIsFunding(false); return; }
+    if (isNaN(fee) || fee <= 0) { setFundChannelError("Bad Fee."); setIsFunding(false); return; }
+    if (!assetId?.trim()) { setFundChannelError("Asset ID needed."); setIsFunding(false); return; }
+    if (!peerPubkey?.trim()) { setFundChannelError("Peer Pubkey needed."); setIsFunding(false); return; }
     try {
-      const request = {
-        asset_amount: parseInt(assetAmount, 10),
-        asset_id: assetId,
-        peer_pubkey: peerPubkey,
-        fee_rate_sat_per_vbyte: parseInt(feeRateSatPerVbyte, 10),
-      };
-
-      const fundChannelResponse = await tapChannels.fundChannel(request);
-      console.log("Fund Channel Response:", fundChannelResponse);
-      setFundChannelSuccess("Channel funding initiated successfully.");
-      setAssetAmount('');
-      setAssetId('');
-      setPeerPubkey('');
-      setFeeRateSatPerVbyte('');
-    } catch (error) {
-      console.error("Failed to fund channel:", error);
-      setFundChannelError(error.message || "Failed to fund channel. Please check your inputs.");
-    } finally {
-      setIsFunding(false);
-    }
+      const assetIdBytes = Buffer.from(assetId.trim(), 'hex'); const peerBytes = Buffer.from(peerPubkey.trim(), 'hex');
+      const req = { asset_amount: amt.toString(), asset_id: assetIdBytes, peer_pubkey: peerBytes, fee_rate_sat_per_vbyte: fee };
+      const res = await lnc.tapd.tapChannels.fundChannel(req);
+      setFundChannelSuccess(`Funding TX: ${res?.txid || 'N/A'}, Index: ${res?.outputIndex}`);
+      setAssetAmount(''); setAssetId(''); setPeerPubkey(''); setFeeRateSatPerVbyte('');
+    } catch (e) { console.error("Fund error:", e); setFundChannelError(e.message || "Fund fail."); }
+    finally { setIsFunding(false); }
   };
 
   // --- Render Logic ---
-
-  // Loading state while connecting
-   if (isConnecting) {
-       return <div className="flex justify-center items-center min-h-screen text-gray-600">Connecting to LNC...</div>;
-   }
-
-  // Render Connection form if LNC is not initialized/connected
-  if (!lnc) {
-      return (
-        <div className="flex flex-col justify-center items-center min-h-screen bg-gradient-to-br from-indigo-100 to-purple-100">
-            <div className="text-center mb-8 px-4">
-              <h1 className="text-3xl md:text-4xl font-extrabold text-gray-800 mb-4 tracking-tight">
-                Unlock the Power of Taproot Assets
-              </h1>
-              <p className="text-lg text-gray-600 max-w-2xl leading-relaxed mx-auto">
-                Seamlessly mint, transfer, and manage Bitcoin-based assets with the speed and efficiency of the Lightning Network.
-              </p>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-2xl p-8 md:p-12 max-w-md w-full mx-4">
-              <div className="mb-6 text-center">
-                <p className="text-lg font-semibold text-gray-700 mb-4">
-                  Connect your Lightning Node:
-                </p>
-              </div>
-              {/* BitcoinConnect looks better but can't be sure that all connection methods supports tapd; 
-              It looks that only Lit running with both tapd and lnd in integrated mode does */}
-              <form onSubmit={handleConnect}>
-                <div className="mb-4">
-                  <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="pairingPhrase">
-                    Pairing Phrase (LNC)
-                  </label>
-                  <input
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                    id="pairingPhrase"
-                    type="text"
-                    placeholder="Enter your pairing phrase"
-                    value={pairingPhrase}
-                    onChange={(e) => setPairingPhrase(e.target.value)}
-                    required
-                    disabled={isConnecting}
-                  />
-                </div>
-                {/** Implement later as lightning terminal does or test bitcoin connect again (with LNC connection)
-                 * in future
-                <div className="mb-6">
-                  <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="password">
-                    Password
-                  </label>
-                  <input
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 mb-3 leading-tight focus:outline-none focus:shadow-outline"
-                    id="password"
-                    type="password"
-                    placeholder="******************"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    disabled={isConnecting}
-                  />
-                </div>
-                
-                */}
-
-                <div className="flex items-center justify-center">
-                  <button
-                    className={`bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline w-full transition duration-150 ease-in-out ${isConnecting ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    type="submit"
-                    disabled={isConnecting}
-                  >
-                    {isConnecting ? 'Connecting...' : 'Connect with LNC'}
-                  </button>
-                </div>
-                {connectionError && (
-                  <div className="mt-4 text-red-600 text-sm text-center bg-red-100 p-3 rounded border border-red-300">
-                    {connectionError}
-                  </div>
-                )}
-              </form>
-              <div className="mt-8 text-center">
-                <p className="text-sm text-gray-500">
-                  Powered by Lightning Node Connect.
-                </p>
-                 <p className="text-xs text-gray-400 mt-2">
-                    Ensure LNC is running and accessible. Need help?
-                    <a href="https://docs.lightning.engineering/lightning-network-tools/lightning-node-connect/overview" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline ml-1">
-                        LNC Docs
-                    </a>
-                 </p>
-              </div>
-            </div>
-
-            <div className="mt-12 text-center px-4">
-              <p className="text-xs text-gray-400">
-                © {new Date().getFullYear()} Taproot Assets Demo. All rights reserved.
-              </p>
-            </div>
-          </div>
-      );
-  }
-
-  // --- Main App Content ---
-  // Helper function to get enum name from value, if taprpc is loaded
   const getEnumName = (enumObj, value) => {
-    if (!enumObj) return 'UNKNOWN';
-    for (const key in enumObj) {
-      // Check if the property belongs to the object itself (not inherited)
-      // and if the value matches
-      if (Object.prototype.hasOwnProperty.call(enumObj, key) && enumObj[key] === value) {
-        return key;
-      }
-    }
-    // Fallback for potential string values returned by API sometimes
-    if (typeof value === 'string' && Object.prototype.hasOwnProperty.call(enumObj, value)) {
-        return value;
-    }
-    return 'UNKNOWN_VALUE';
+    if (value === undefined || value === null || !enumObj) return 'N/A';
+    for (const key in enumObj) { if (Object.prototype.hasOwnProperty.call(enumObj, key) && enumObj[key] === value) return key; }
+    if (typeof value === 'string' && Object.prototype.hasOwnProperty.call(enumObj, value)) return value;
+    return `UNKNOWN (${value})`;
   };
 
+   if (isInitializing || isConnecting) {
+    return (
+      <div className="flex flex-col justify-center items-center min-h-screen" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+        <div className="relative w-24 h-24 mb-6">
+          <div className="absolute inset-0 flex justify-center items-center"> <img src="/favicon.png" alt="Loading Logo" className="w-16 h-16" /> </div>
+          <div className="absolute inset-0 rounded-full border-t-4 border-accent-500 animate-spin" style={{ borderColor: 'var(--accent-light) transparent transparent transparent' }}></div>
+        </div> <p className="text-xl font-semibold animate-pulse"> {isInitializing ? 'Initializing...' : 'Connecting...'} </p>
+      </div> );
+  }
 
+  if (!isConnected) {
+    return (
+      <div className="flex flex-col justify-center items-center min-h-screen p-4" style={{ background: darkMode ? 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)' : 'linear-gradient(135deg, #c7d2fe 0%, #ede9fe 100%)', color: 'var(--text-primary)' }}>
+        <div className="absolute top-4 right-4"> <button onClick={toggleDarkMode} className="p-2 rounded-full transition-colors duration-200" style={{ background: darkMode ? '#ffffff20' : '#00000020' }}> {darkMode ? <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>} </button> </div>
+        <div className="relative w-32 h-32 mb-6 animate-float"> <div className="absolute inset-0 flex justify-center items-center"> <img src="/favicon.png" alt="Taproot Assets Logo" className="w-full h-full p-2" /> </div> <div className="absolute -inset-2 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full blur opacity-30 animate-pulse-slow"></div> </div>
+        <div className="text-center mb-8"> <h1 className="text-4xl md:text-5xl font-extrabold mb-4 tracking-tighter" style={{ color: darkMode ? '#ffffff' : '#1e293b', textShadow: darkMode ? '0 2px 10px rgba(99, 102, 241, 0.5)' : '0 2px 5px rgba(0, 0, 0, 0.1)' }}> Taproot Assets </h1> <p className="text-lg md:text-xl max-w-xl leading-relaxed mx-auto" style={{ color: darkMode ? '#b4b4b4' : '#4b5563' }}> Connect your node to mint, transfer, and manage assets. </p> </div>
+        <div className="bg-opacity-80 backdrop-filter backdrop-blur-lg rounded-2xl shadow-2xl p-8 md:p-10 w-full max-w-md transition-all duration-300" style={{ background: darkMode ? 'rgba(30, 30, 40, 0.7)' : 'rgba(255, 255, 255, 0.85)', boxShadow: darkMode ? '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2)' : '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'}` }}>
+          <h2 className="text-2xl font-bold mb-6 text-center" style={{ color: 'var(--text-primary)' }}>Connect Your Node</h2>
+          <form onSubmit={handleConnect}>
+            <div className="mb-5"> <label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }}>LNC Pairing Phrase</label> <textarea className="w-full px-4 py-3 rounded-lg transition-colors duration-200" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`, boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.05)' }} placeholder="Enter pairing phrase..." value={pairingPhrase} onChange={(e) => setPairingPhrase(e.target.value)} required rows="4" disabled={isConnecting} /> </div>
+            <button type="submit" className="w-full py-3 px-4 rounded-lg font-bold text-white transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]" style={{ background: `linear-gradient(135deg, var(--accent-light), var(--accent-dark))`, boxShadow: darkMode ? '0 4px 12px rgba(79, 70, 229, 0.3)' : '0 4px 12px rgba(79, 70, 229, 0.2)' }} disabled={isConnecting}> {isConnecting ? 'Connecting...' : 'Connect with Lightning'} </button>
+          </form>
+          {connectionError && ( <div className="mt-6 p-4 rounded-lg text-center text-sm" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', border: `1px solid ${darkMode ? 'rgba(220, 38, 38, 0.3)' : 'rgba(220, 38, 38, 0.2)'}` }}> {connectionError} </div> )}
+           <div className="mt-8 text-center" style={{ color: 'var(--text-secondary)' }}> <p className="text-sm">Powered by Lightning Node Connect</p> <p className="text-xs mt-2">Need help? <a href="https://docs.lightning.engineering/lightning-network-tools/lightning-node-connect/overview" target="_blank" rel="noopener noreferrer" className="ml-1 transition-colors duration-200" style={{ color: 'var(--accent-light)' }}>Documentation</a></p> </div>
+        </div> <div className="absolute bottom-6 text-center text-xs" style={{ color: 'var(--text-secondary)' }}>© {new Date().getFullYear()} Taproot Assets Demo</div>
+      </div> );
+  }
+
+  // --- Main Application UI (Rendered when isConnected is true) ---
   return (
-    <div className="min-h-screen bg-gray-100 p-4 md:p-8">
-        <div className="bg-white rounded-lg shadow-md p-6 md:p-8 max-w-4xl mx-auto">
-          <header className="mb-8 border-b pb-4">
-            <h1 className="text-2xl md:text-3xl font-semibold text-gray-800">SENFINA TapVolt Demo</h1>
-             <div className="mt-4 text-sm text-gray-600 space-y-1">
-                <p>Alias: <span className="font-medium text-gray-800">{nodeInfo?.alias || 'Loading...'}</span></p>
-                <p>Block Height: <span className="font-medium text-gray-800">{nodeInfo?.blockHeight || 'Loading...'}</span></p>
-                <p>Synced: <span className="font-medium text-gray-800">{typeof nodeInfo?.syncedToChain === 'boolean' ? (nodeInfo.syncedToChain ? 'Yes' : 'No') : 'Loading...'}</span></p>
-                <p>Channels: <span className="font-medium text-gray-800">{nodeChannels?.length ?? 'Loading...'}</span></p>
-                <p>Assets: <span className="font-medium text-gray-800">{assets?.length ?? 'Loading...'}</span></p>
+    <div className="min-h-screen transition-colors duration-300 p-4 sm:p-6 lg:p-8" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+      <button onClick={toggleDarkMode} className="fixed top-4 right-4 z-50 p-2 rounded-full transition-colors duration-200" style={{ background: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)', backdropFilter: 'blur(4px)' }}> {darkMode ? <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>} </button>
+      <div className="max-w-6xl mx-auto rounded-2xl shadow-xl transition-all duration-300" style={{ backgroundColor: 'var(--bg-secondary)', boxShadow: darkMode ? '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2)' : '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.01)'}` }}>
+        <header className="p-6 border-b transition-colors duration-300" style={{ borderColor: 'var(--border-color)' }}>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+            <div className="flex items-center gap-4"> <div className="relative w-12 h-12"><div className="absolute inset-0 flex justify-center items-center"><img src="/favicon.png" alt="Logo" className="w-full h-full" /></div><div className="absolute -inset-1 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full blur opacity-30"></div></div> <h1 className="text-3xl md:text-4xl font-bold tracking-tight">Taproot Assets</h1> </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1 text-sm" style={{ color: 'var(--text-secondary)' }}> <div>Alias: <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{nodeInfo?.alias || '...'}</span></div> <div>Network: <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{nodeInfo?.network || '...'}</span></div> <div>Height: <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{nodeInfo?.blockHeight || '...'}</span></div> <div>Synced: <span className="font-medium" style={{ color: nodeInfo?.syncedToChain ? '#10b981' : '#ef4444' }}>{typeof nodeInfo?.syncedToChain === 'boolean' ? (nodeInfo.syncedToChain ? 'Yes' : 'No') : '...'}</span></div> <div>Channels: <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{nodeChannels?.length ?? '...'}</span></div> <div>Assets: <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{assets?.length ?? '...'}</span></div> </div>
+          </div> </header>
+        <div className="p-6"> <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+             <div className="space-y-8">
+                <section> <h2 className="text-2xl font-bold mb-5" style={{ color: 'var(--text-primary)' }}>Mint New Asset</h2> <form onSubmit={mintAsset} className="rounded-xl transition-colors duration-300 p-6" style={{ backgroundColor: 'var(--form-bg)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'}`, boxShadow: darkMode ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.05)' }}>
+                    <div className="mb-4"><label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Asset Name</label><input className="w-full px-3 py-2 rounded-md transition-colors duration-200" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }} type="text" placeholder="e.g., MyToken" value={mintAssetName} onChange={(e) => setMintAssetName(e.target.value)} required disabled={isMinting} /></div>
+                    <div className="mb-4"><label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Amount (Units)</label><input className="w-full px-3 py-2 rounded-md transition-colors duration-200" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }} type="number" placeholder="e.g., 1000" value={mintAssetAmount} onChange={(e) => setMintAssetAmount(e.target.value)} min="1" required disabled={isMinting} /></div>
+                    <div className="mb-6"><label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Metadata (Optional)</label><input className="w-full px-3 py-2 rounded-md transition-colors duration-200" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }} type="text" placeholder="e.g., Asset description" value={mintAssetMeta} onChange={(e) => setMintAssetMeta(e.target.value)} disabled={isMinting} /><p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>Stored as OPAQUE metadata.</p></div>
+                    <button className="w-full py-2 px-4 rounded-md font-medium transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] text-white" style={{ background: `linear-gradient(135deg, var(--accent-light), var(--accent-dark))`, boxShadow: darkMode ? '0 4px 12px rgba(79, 70, 229, 0.3)' : '0 4px 12px rgba(79, 70, 229, 0.2)', opacity: isMinting ? '0.7' : '1', cursor: isMinting ? 'not-allowed' : 'pointer' }} type="submit" disabled={isMinting}>{isMinting ? 'Adding to Batch...' : 'Add Asset to Batch'}</button>
+                    {mintAssetError && <div className="mt-4 p-3 rounded-md text-sm" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', border: `1px solid ${darkMode ? 'rgba(220, 38, 38, 0.3)' : 'rgba(220, 38, 38, 0.2)'}` }}>{mintAssetError}</div>}
+                    {mintAssetSuccess && <div className="mt-4 p-3 rounded-md text-sm" style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-text)', border: `1px solid ${darkMode ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.2)'}` }}>{mintAssetSuccess}</div>}
+                </form> </section>
+                 {batchAssets.length > 0 && ( <section className="rounded-xl p-6 transition-colors duration-300" style={{ backgroundColor: 'var(--batch-bg)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.05)' : 'var(--batch-border)'}`, boxShadow: darkMode ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.05)' }}>
+                    <h3 className="text-xl font-bold mb-4" style={{ color: darkMode ? '#93c5fd' : '#1e40af' }}>Pending Mint Batch</h3>
+                    <div className="max-h-60 overflow-y-auto pr-2 mb-4 space-y-2"> {batchAssets.map((asset, index) => (
+                        <div key={index} className="p-3 rounded-lg transition-colors duration-200" style={{ backgroundColor: 'var(--bg-card)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.05)' : 'var(--border-color)'}`, boxShadow: darkMode ? '0 2px 5px rgba(0, 0, 0, 0.2)' : '0 1px 3px rgba(0, 0, 0, 0.05)' }}> <div className="flex justify-between items-center"><span className="font-medium" style={{ color: 'var(--text-primary)' }}>{asset.name}</span><span style={{ color: 'var(--text-secondary)' }}>{asset.amount} units</span></div> <div className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>Type: <span className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: 'var(--badge-bg)' }}>{getEnumName(taprpc?.AssetType, asset.assetType)}</span> | Version: <span className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: 'var(--badge-bg)' }}>{getEnumName(taprpc?.AssetVersion, asset.assetVersion)}</span></div> {asset.assetMeta && <p className="text-xs mt-1 truncate" style={{ color: 'var(--text-secondary)' }} title={asset.assetMeta}>Meta: {asset.assetMeta}</p>} </div> ))}
+                    </div> <div className="flex flex-col sm:flex-row gap-3"> <button className="flex-1 py-2 px-4 rounded-md font-medium transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]" style={{ backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'white', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'var(--border-color)'}`, boxShadow: darkMode ? 'none' : '0 1px 3px rgba(0, 0, 0, 0.1)', opacity: isMinting ? '0.7' : '1', cursor: isMinting ? 'not-allowed' : 'pointer' }} onClick={cancelBatch} disabled={isMinting}>Cancel Batch</button> <button className="flex-1 py-2 px-4 rounded-md font-medium text-white transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]" style={{ background: 'linear-gradient(135deg, #10b981, #059669)', boxShadow: darkMode ? '0 4px 12px rgba(16, 185, 129, 0.3)' : '0 4px 12px rgba(16, 185, 129, 0.2)', opacity: isMinting ? '0.7' : '1', cursor: isMinting ? 'not-allowed' : 'pointer' }} onClick={finalizeBatch} disabled={isMinting}>{isMinting ? 'Processing...' : 'Finalize Batch'}</button> </div>
+                 </section> )}
              </div>
-          </header>
-
-          {/* Mint Asset Section */}
-          <div className="mb-10">
-            <h3 className="text-xl font-semibold mb-4 text-gray-700">
-              Mint New Taproot Asset
-            </h3>
-            <p className="text-gray-600 mb-6">
-              Create new assets directly on the Bitcoin blockchain, transferable via Lightning.
-            </p>
-
-            <form onSubmit={mintAsset} className="mb-6 bg-gray-50 p-6 rounded-lg border">
-                {/* Name Input */}
-                <div className="mb-4">
-                    <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="mintAssetName">
-                    Asset Name
-                    </label>
-                    <input
-                    className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    id="mintAssetName"
-                    type="text"
-                    placeholder="e.g., MyToken"
-                    value={mintAssetName}
-                    onChange={(e) => setMintAssetName(e.target.value)}
-                    required
-                    disabled={isMinting}
-                    />
-                </div>
-                {/* Amount Input */}
-                <div className="mb-4">
-                    <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="mintAssetAmount">
-                    Amount (Units)
-                    </label>
-                    <input
-                    className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    id="mintAssetAmount"
-                    type="number"
-                    placeholder="e.g., 1000"
-                    value={mintAssetAmount}
-                    onChange={(e) => setMintAssetAmount(e.target.value)}
-                    min="1"
-                    required
-                    disabled={isMinting}
-                    />
-                </div>
-                {/* Metadata Input (Optional) */}
-                <div className="mb-6">
-                    <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="mintAssetMeta">
-                    Metadata (Optional Text)
-                    </label>
-                    <input
-                    className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    id="mintAssetMeta"
-                    type="text"
-                    placeholder="e.g., Asset description"
-                    value={mintAssetMeta}
-                    onChange={(e) => setMintAssetMeta(e.target.value)}
-                    disabled={isMinting}
-                    />
-                     <p className="text-xs text-gray-500 mt-1">This will be stored as OPAQUE metadata.</p>
-                </div>
-
-              <button
-                className={`w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out ${isMinting ? 'opacity-50 cursor-not-allowed' : ''}`}
-                type="submit"
-                disabled={isMinting}
-              >
-                {isMinting ? 'Minting...' : 'Mint Asset'}
-              </button>
-              {mintAssetError && (
-                <div className="mt-3 text-red-600 text-sm bg-red-100 p-3 rounded border border-red-300">{mintAssetError}</div>
-              )}
-              {mintAssetSuccess && (
-                <div className="mt-3 text-green-600 text-sm bg-green-100 p-3 rounded border border-green-300">{mintAssetSuccess}</div>
-              )}
-            </form>
-          </div>
-          {batchAssets.length > 0 && (
-            <div className="mt-6">
-              <h4 className="text-lg font-semibold mb-2">Assets in Batch</h4>
-              {
-                batchAssets.map(batch => {
-                  return(
-                    <ul>
-                    {
-                    batch.map((asset, index) => (
-                      <li key={index} className="border p-2 rounded mb-2">
-                        <strong>{asset.name}</strong> - {asset.amount}
-                        <p className="text-xs text-gray-500">
-                          Type: {asset.assetType}
-                        </p>
-                        {asset.assetMeta && (
-                          <p className="text-xs text-gray-500">
-                            Meta: {asset.assetMeta}
-                          </p>
-                        )}
-                      </li>
-                    ))
-                    }
-                    </ul>
-                  )
-                })
-              }
-              <button
-                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out mt-4"
-                onClick={cancelBatch}
-              >
-                Cancel Batch
-              </button>
-              <button
-                className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out mt-4"
-                onClick={finalizeBatch}
-              >
-                Finalize Batch
-              </button>
-            </div>
-          )}
-          {/* Owned Assets Section */}
-          <div>
-            <h3 className="text-xl font-semibold mb-6 text-gray-700">
-              Owned Assets
-            </h3>
-             {assets.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {assets.map((item, index) => {
-                        // Use helper to safely get enum names from numeric or string values
-                        const assetTypeString = getEnumName(taprpc?.AssetType, item.assetType);
-
-                        // Prefer assetIdStr for display if available
-                        const displayAssetId = item.assetGenesis?.assetIdStr || item.assetGenesis?.assetId || 'N/A';
-
-                        return (
-                            <div key={index} className="border rounded-lg p-4 shadow-sm bg-white hover:shadow-md transition-shadow">
-                            <p className="font-semibold text-gray-800 mb-2 truncate" title={item.assetGenesis?.name}>
-                                Name: {item.assetGenesis?.name || 'N/A'}
-                            </p>
-                            <p className="text-gray-700 mb-2">Type: <span className="font-mono bg-gray-100 px-1 rounded text-xs">{assetTypeString}</span></p>
-                            <p className="text-gray-700 mb-2">Amount: {item.amount ? item.amount.toString() : 'N/A'}</p>
-                            <p className="text-xs text-gray-500 mb-2 break-all" title={displayAssetId}>ID: {displayAssetId}</p>
-                            <p className="text-xs text-gray-500 break-all">Genesis Pt: {item.assetGenesis?.genesisPoint || 'N/A'}</p>
-                            <p className="text-xs text-gray-500 break-all">Anchor Height: {item.chainAnchor?.blockHeight || 'Unconfirmed'}</p>
-
-
-                            {assetTypeString === 'COLLECTIBLE' && item.decodedMeta && (
-                                <div className="mt-4 pt-4 border-t">
-                                    <p className="font-semibold text-gray-800 mb-2">Decoded Meta Data</p>
-                                    {/* Basic attempt to render image or text */}
-                                    {item.decodedMeta.startsWith('data:image') ? (
-                                        <img
-                                            src={item.decodedMeta}
-                                            alt="Collectible Asset Preview"
-                                            className="max-w-full h-auto rounded-md border"
-                                            onError={(e) => {
-                                                const target = e.target; // No type casting
-                                                target.style.display = 'none';
-                                                const nextSibling = target.nextElementSibling;
-                                                if (nextSibling instanceof HTMLElement) { // Keep instanceof check
-                                                    nextSibling.style.display = 'block';
-                                                }
-                                            }}
-                                        />
-                                    ) : null}
-                                    {/* Fallback or text display */}
-                                    <pre
-                                      className={`text-xs bg-gray-50 p-2 rounded overflow-auto max-h-40 border ${item.decodedMeta.startsWith('data:image') ? 'hidden' : ''}`}
-                                      style={{ display: item.decodedMeta.startsWith('data:image') ? 'none' : 'block' }} // Ensure correct initial display state
-                                    >
-                                        {item.decodedMeta}
-                                    </pre>
-                                </div>
-                            )}
-                            </div>
-                        );
-                    })}
-                </div>
-             ) : (
-                 <p className="text-gray-500">No assets found or still loading...</p>
-             )}
-          </div>
-          {/* Fund Channel Form */}
-          {
-            assets?.length > 0 &&
-            <div>
-              <h3 className="text-xl font-semibold mb-4 text-gray-700">
-                Fund Taproot Asset Channel
-              </h3>
-              <p className="text-gray-600 mb-6">
-                Open a channel with assets.
-              </p>
-
-              <form onSubmit={fundChannel} className="mb-6 bg-gray-50 p-6 rounded-lg border">
-                <div className="mb-4">
-                  <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="assetAmount">
-                    Asset Amount
-                  </label>
-                  <input
-                    className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    id="assetAmount"
-                    type="number"
-                    placeholder="e.g., 1"
-                    value={assetAmount}
-                    onChange={(e) => setAssetAmount(e.target.value)}
-                    required
-                    disabled={isFunding}
-                  />
-                </div>
-                <div className="mb-4">
-                  <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="assetId">
-                    Asset ID
-                  </label>
-                  <input
-                    className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    id="assetId"
-                    type="text"
-                    placeholder="e.g., asset_id"
-                    value={assetId}
-                    onChange={(e) => setAssetId(e.target.value)}
-                    required
-                    disabled={isFunding}
-                  />
-                </div>
-                <div className="mb-4">
-                  <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="peerPubkey">
-                    Peer Public Key
-                  </label>
-                  <input
-                    className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    id="peerPubkey"
-                    type="text"
-                    placeholder="e.g., peer_pubkey"
-                    value={peerPubkey}
-                    onChange={(e) => setPeerPubkey(e.target.value)}
-                    required
-                    disabled={isFunding}
-                  />
-                </div>
-                <div className="mb-6">
-                  <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="feeRateSatPerVbyte">
-                    Fee Rate (sat/vbyte)
-                  </label>
-                  <input
-                    className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    id="feeRateSatPerVbyte"
-                    type="number"
-                    placeholder="e.g., 1"
-                    value={feeRateSatPerVbyte}
-                    onChange={(e) => setFeeRateSatPerVbyte(e.target.value)}
-                    required
-                    disabled={isFunding}
-                  />
-                </div>
-
-                <button
-                  className={`w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out ${isFunding ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  type="submit"
-                  disabled={isFunding}
-                >
-                  {isFunding ? 'Funding...' : 'Fund Channel'}
-                </button>
-                {fundChannelError && (
-                  <div className="mt-3 text-red-600 text-sm bg-red-100 p-3 rounded border border-red-300">{fundChannelError}</div>
-                )}
-                {fundChannelSuccess && (
-                  <div className="mt-3 text-green-600 text-sm bg-green-100 p-3 rounded border border-green-300">{fundChannelSuccess}</div>
-                )}
-              </form>
-            </div>
-          }
-        </div>
-
+             <div className="space-y-8">
+                 <section> <h2 className="text-2xl font-bold mb-5" style={{ color: 'var(--text-primary)' }}>Owned Assets</h2> {assets.length > 0 ? ( <div className="grid grid-cols-1 gap-4 max-h-[600px] overflow-y-auto pr-2"> {assets.map((item, index) => { const type = getEnumName(taprpc?.AssetType, item.assetType); const ver = getEnumName(taprpc?.AssetVersion, item.version); const id = item.assetGenesis?.assetIdStr || item.assetGenesis?.assetId || 'N/A'; return ( <div key={index} className="rounded-lg p-4 transition-all duration-300 transform hover:scale-[1.01]" style={{ backgroundColor: 'var(--bg-card)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.05)' : 'var(--border-color)'}`, boxShadow: darkMode ? '0 4px 8px rgba(0, 0, 0, 0.2)' : '0 1px 3px rgba(0, 0, 0, 0.1)' }}> <p className="font-semibold mb-2 truncate" style={{ color: 'var(--text-primary)' }} title={item.assetGenesis?.name}>{item.assetGenesis?.name || 'Unnamed Asset'}</p> <div className="space-y-1 text-sm" style={{ color: 'var(--text-secondary)' }}> <p>Amount: <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{item.amount?.toString() || 'N/A'}</span></p> <div className="flex flex-wrap gap-2"><span className="px-2 py-0.5 rounded text-xs" style={{ backgroundColor: 'var(--badge-bg)' }}>Type: {type}</span><span className="px-2 py-0.5 rounded text-xs" style={{ backgroundColor: 'var(--badge-bg)' }}>Version: {ver}</span></div> <p className="text-xs break-all pt-1" title={id}>ID: <span style={{ fontFamily: 'monospace' }}>{id}</span></p> <p className="text-xs">Anchor Height: <span style={{ fontFamily: 'monospace' }}>{item.chainAnchor?.blockHeight || 'Unconfirmed'}</span></p> </div> {type === 'COLLECTIBLE' && item.decodedMeta && ( <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--border-color)' }}> <p className="font-medium text-sm mb-1" style={{ color: 'var(--text-primary)' }}>Decoded Metadata</p> {item.decodedMeta.startsWith('data:image') ? <img src={item.decodedMeta} alt="Preview" className="max-w-full h-auto rounded border" style={{ borderColor: 'var(--border-color)' }} onError={(e) => { e.target.style.display='none'; e.target.nextElementSibling.style.display='block'; }}/> : null} <pre className="text-xs p-2 rounded overflow-auto max-h-28 border" style={{ display: item.decodedMeta.startsWith('data:image') ? 'none' : 'block', backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)', borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}>{item.decodedMeta}</pre> </div> )} </div> ); })} </div> ) : (<p style={{ color: 'var(--text-secondary)' }}>No assets found.</p>)} </section>
+                 {assets?.length > 0 && ( <section> <h2 className="text-2xl font-bold mb-5" style={{ color: 'var(--text-primary)' }}>Fund Asset Channel</h2> <form onSubmit={fundChannel} className="rounded-xl p-6 transition-colors duration-300" style={{ backgroundColor: 'var(--form-bg)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'}`, boxShadow: darkMode ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.05)' }}> <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"> <div className="mb-4 sm:mb-0"><label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Asset Amount</label><input className="w-full px-3 py-2 rounded-md transition-colors duration-200" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }} type="number" placeholder="e.g., 100" value={assetAmount} onChange={(e) => setAssetAmount(e.target.value)} required disabled={isFunding} /></div> <div className="mb-4 sm:mb-0"><label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Fee Rate (sat/vB)</label><input className="w-full px-3 py-2 rounded-md transition-colors duration-200" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }} type="number" placeholder="e.g., 10" value={feeRateSatPerVbyte} onChange={(e) => setFeeRateSatPerVbyte(e.target.value)} required disabled={isFunding} min="1" /></div> </div> <div className="mt-4"><label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Asset ID (Hex)</label><input className="w-full px-3 py-2 rounded-md transition-colors duration-200 font-mono text-xs" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }} type="text" placeholder="Paste Asset ID hex..." value={assetId} onChange={(e) => setAssetId(e.target.value)} required disabled={isFunding} /></div> <div className="mt-4 mb-6"><label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Peer Public Key (Hex)</label><input className="w-full px-3 py-2 rounded-md transition-colors duration-200 font-mono text-xs" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }} type="text" placeholder="Paste Peer Pubkey hex..." value={peerPubkey} onChange={(e) => setPeerPubkey(e.target.value)} required disabled={isFunding} /></div>
+                    <button className="w-full py-2 px-4 rounded-md font-medium text-white transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]" style={{ background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', boxShadow: darkMode ? '0 4px 12px rgba(59, 130, 246, 0.3)' : '0 4px 12px rgba(59, 130, 246, 0.2)', opacity: isFunding ? '0.7' : '1', cursor: isFunding ? 'not-allowed' : 'pointer' }} type="submit" disabled={isFunding}>{isFunding ? 'Initiating Funding...' : 'Fund Channel'}</button>
+                    {fundChannelError && <div className="mt-4 p-3 rounded-md text-sm" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', border: `1px solid ${darkMode ? 'rgba(220, 38, 38, 0.3)' : 'rgba(220, 38, 38, 0.2)'}` }}>{fundChannelError}</div>} {fundChannelSuccess && <div className="mt-4 p-3 rounded-md text-sm" style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-text)', border: `1px solid ${darkMode ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.2)'}` }}>{fundChannelSuccess}</div>}
+                 </form> </section> )}
+             </div>
+        </div> </div>
+        <footer className="px-6 py-4 border-t text-center text-xs" style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}> <p>Taproot Assets Demo v1.0.3</p> </footer>
+      </div>
+      <style jsx>{` @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } } @keyframes pulse-slow { 0% { opacity: 0.2; } 50% { opacity: 0.3; } 100% { opacity: 0.2; } } .animate-float { animation: float 4s ease-in-out infinite; } .animate-pulse-slow { animation: pulse-slow 3s ease-in-out infinite; } `}</style>
     </div>
   );
 }
