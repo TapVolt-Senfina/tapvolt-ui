@@ -41,6 +41,9 @@ function App() {
   const [mintAssetSuccess, setMintAssetSuccess] = useState(null);
   const [isMinting, setIsMinting] = useState(false);
 
+  // Peers
+  const [nodePeers,setNodePeers] = useState();
+
   // Fund Channel Form State
   const [assetAmount, setAssetAmount] = useState('');
   const [assetId, setAssetId] = useState('');
@@ -124,6 +127,21 @@ function App() {
     catch (error) { console.error("Failed to list channels:", error); setChannels([]); }
   }, [lnc]);
 
+  const listPeers = useCallback(async () => {
+    if (!lnc || !lnc.lnd?.lightning) {
+      console.error("LNC or LND lightning service not initialized for listPeers");
+      return;
+    }
+    try {
+      const response = await lnc.lnd.lightning.listPeers();
+      console.log(response)
+      setNodePeers(Array.isArray(response?.peers) ? response.peers : []);
+    } catch (error) {
+      console.error("Failed to list peers:", error);
+      setNodePeers([]);
+    }
+  }, [lnc]);
+
   const listAssets = useCallback(async () => {
     if (!lnc || !lnc.tapd?.taprootAssets) { console.error("LNC or Taproot Assets service not initialized for listAssets"); return; }
     const { taprootAssets } = lnc.tapd;
@@ -185,10 +203,15 @@ function App() {
       listChannels();
       listAssets();
       listBatches();
+      listPeers();
     } else {
-      setNodeInfo(null); setChannels([]); setAssets([]); setBatchAssets([]);
+      setNodeInfo(null); 
+      setChannels([]); 
+      setAssets([]); 
+      setBatchAssets([]);
+      setNodePeers([]);
     }
-  }, [lnc, getInfo, listChannels, listAssets, listBatches]); // Added useCallback dependencies
+  }, [lnc, getInfo, listChannels, listAssets, listBatches,listPeers]); // Added useCallback dependencies
 
   // Mint Asset Form Handlers
   const handleAssetTypeChange = (e) => {
@@ -391,6 +414,7 @@ function App() {
           nodeInfo={nodeInfo}
           nodeChannelsCount={nodeChannels?.length}
           assetsCount={assets?.length}
+          peersCount={nodePeers?.length} 
         />
 
         <div className="p-6">

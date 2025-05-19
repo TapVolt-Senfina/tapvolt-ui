@@ -1,6 +1,6 @@
 import React from 'react';
 
-const AppHeader = ({ nodeInfo, nodeChannelsCount, assetsCount }) => {
+const AppHeader = ({ nodeInfo, nodeChannelsCount, assetsCount,peersCount }) => {
   return (
     <header className="p-6 border-b transition-colors duration-300" style={{ borderColor: 'var(--border-color)' }}>
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
@@ -14,6 +14,7 @@ const AppHeader = ({ nodeInfo, nodeChannelsCount, assetsCount }) => {
           <div>Synced: <span className="font-medium" style={{ color: nodeInfo?.syncedToChain ? '#10b981' : '#ef4444' }}>{typeof nodeInfo?.syncedToChain === 'boolean' ? (nodeInfo.syncedToChain ? 'Yes' : 'No') : '...'}</span></div>
           <div>Channels: <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{nodeChannelsCount ?? '...'}</span></div>
           <div>Assets: <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{assetsCount ?? '...'}</span></div>
+          <div>Peers: <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{peersCount ?? '...'}</span></div>
         </div>
       </div>
     </header>
