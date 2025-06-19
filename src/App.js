@@ -16,6 +16,7 @@ import MintAssetForm from './components/MintAssetForm';
 import PendingBatchDisplay from './components/PendingBatchDisplay';
 import OwnedAssetsList from './components/OwnedAssetsList';
 import FundChannelForm from './components/FundChannelForm';
+import PeersModal from './components/PeersModal';
 
 function App() {
   // LNC & Node State
@@ -52,6 +53,7 @@ function App() {
   const [fundChannelError, setFundChannelError] = useState(null);
   const [fundChannelSuccess, setFundChannelSuccess] = useState(null);
   const [isFunding, setIsFunding] = useState(false);
+  const [isPeersModalOpen, setIsPeersModalOpen] = useState(false);
 
   // UI State
   const [darkMode, setDarkMode] = useState(() => {
@@ -415,8 +417,20 @@ function App() {
           nodeChannelsCount={nodeChannels?.length}
           assetsCount={assets?.length}
           peersCount={nodePeers?.length} 
+          onShowPeers={() => setIsPeersModalOpen(true)} // <-- Pass the handler here
         />
-
+        <PeersModal
+          isOpen={isPeersModalOpen}
+          onClose={() => {
+              setIsPeersModalOpen(false);
+              // Optionally clear form status when closing modal
+              // (You'd need to lift connectPeerError/Success state or pass setters if you want to clear from here)
+          }}
+          peers={nodePeers}
+          darkMode={darkMode}
+          lnc={lnc} // <-- Pass the LNC instance
+          onPeerAdded={listPeers} // <-- Pass the listPeers function as a callback
+        />
         <div className="p-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Left Column */}
