@@ -4,6 +4,7 @@ import FeedbackMessage from './FeedbackMessage';
 const FundChannelForm = ({
   assetAmount, setAssetAmount,
   assetId, setAssetId,
+  assets,
   peerPubkey, setPeerPubkey,
   feeRateSatPerVbyte, setFeeRateSatPerVbyte,
   isFunding,
@@ -26,10 +27,41 @@ const FundChannelForm = ({
             <input id="feeRateSatPerVbyteFund" className="w-full px-3 py-2 rounded-md transition-colors duration-200" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }} type="number" placeholder="e.g., 10" value={feeRateSatPerVbyte} onChange={(e) => setFeeRateSatPerVbyte(e.target.value)} required disabled={isFunding} min="1" />
           </div>
         </div>
+        
         <div className="mt-4">
-          <label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }} htmlFor="assetIdFund">Asset ID (Hex)</label>
-          <input id="assetIdFund" className="w-full px-3 py-2 rounded-md transition-colors duration-200 font-mono text-xs" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }} type="text" placeholder="Paste Asset ID hex..." value={assetId} onChange={(e) => setAssetId(e.target.value)} required disabled={isFunding} />
+          <label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }} htmlFor="assetIdFund">Asset</label>
+          <select
+            id="assetIdFund"
+            className="w-full px-3 py-2 rounded-md transition-colors duration-200"
+            style={{ 
+              backgroundColor: 'var(--input-bg)', 
+              color: 'var(--text-primary)', 
+              border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
+              // Ensures the dropdown arrow is visible in dark mode
+              backgroundImage: `url('data:image/svg+xml;utf8,<svg fill="${darkMode ? 'white' : 'black'}" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/></svg>')`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 0.75rem center',
+              backgroundSize: '1.5em 1.5em',
+              appearance: 'none',
+              paddingRight: '2.5rem',
+            }}
+            value={assetId}
+            onChange={(e) => setAssetId(e.target.value)}
+            required
+            disabled={isFunding || !assets || assets.length === 0}
+          >
+            <option value="" disabled>Select an owned asset...</option>
+            {assets && assets.map((asset) => (
+              <option 
+                key={asset.assetGenesis.assetIdStr || asset.assetGenesis.assetId} 
+                value={asset.assetGenesis.assetIdStr}
+              >
+                {`${asset.assetGenesis.name} (Amount: ${asset.amount})`}
+              </option>
+            ))}
+          </select>
         </div>
+        
         <div className="mt-4 mb-6">
           <label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }} htmlFor="peerPubkeyFund">Peer Public Key (Hex)</label>
           <input id="peerPubkeyFund" className="w-full px-3 py-2 rounded-md transition-colors duration-200 font-mono text-xs" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }} type="text" placeholder="Paste Peer Pubkey hex..." value={peerPubkey} onChange={(e) => setPeerPubkey(e.target.value)} required disabled={isFunding} />

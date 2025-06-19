@@ -470,6 +470,7 @@ function App() {
                 <FundChannelForm
                   assetAmount={assetAmount} setAssetAmount={setAssetAmount}
                   assetId={assetId} setAssetId={setAssetId}
+                  assets={assets}
                   peerPubkey={peerPubkey} setPeerPubkey={setPeerPubkey}
                   feeRateSatPerVbyte={feeRateSatPerVbyte} setFeeRateSatPerVbyte={setFeeRateSatPerVbyte}
                   isFunding={isFunding}
