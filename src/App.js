@@ -471,6 +471,8 @@ function App() {
                   assetAmount={assetAmount} setAssetAmount={setAssetAmount}
                   assetId={assetId} setAssetId={setAssetId}
                   assets={assets}
+                  peers={nodePeers}
+                  onShowPeers={() => setIsPeersModalOpen(true)}
                   peerPubkey={peerPubkey} setPeerPubkey={setPeerPubkey}
                   feeRateSatPerVbyte={feeRateSatPerVbyte} setFeeRateSatPerVbyte={setFeeRateSatPerVbyte}
                   isFunding={isFunding}
