@@ -21,6 +21,15 @@ import PeersModal from './components/PeersModal';
 function App() {
   // LNC & Node State
   const [lnc, setLNC] = useState(null);
+  const [isPaired, setIsPaired] = useState(() => {
+    try {
+      const lncInstance = new LNC({});
+      return Boolean(lncInstance?.credentials?.isPaired);
+    } catch (error) {
+      console.error('Failed to read LNC pairing state:', error);
+      return false;
+    }
+  });
   const [assets, setAssets] = useState([]);
   const [batchAssets, setBatchAssets] = useState([]);
   const [nodeChannels, setChannels] = useState([]);
@@ -28,6 +37,7 @@ function App() {
 
   // Connection Form State
   const [pairingPhrase, setPairingPhrase] = useState('');
+  const [password, setPassword] = useState('');
   const [connectionError, setConnectionError] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
 
@@ -104,13 +114,61 @@ function App() {
     setIsConnecting(true);
     try {
       if (!LNC) { throw new Error("LNC constructor not available."); }
-      const lncInstance = new LNC({ pairingPhrase: pairingPhrase });
+
+      const trimmedPairingPhrase = pairingPhrase.trim();
+      const trimmedPassword = password.trim();
+      if (!trimmedPairingPhrase) {
+        throw new Error('Pairing phrase is required.');
+      }
+      if (!trimmedPassword) {
+        throw new Error('Password is required.');
+      }
+
+      const lncInstance = new LNC({});
+      lncInstance.credentials.pairingPhrase = trimmedPairingPhrase;
       await lncInstance.connect();
+      // Verify node connectivity before persisting encrypted credentials.
+      await lncInstance.lnd.lightning.listChannels();
+      lncInstance.credentials.password = trimmedPassword;
+
       setLNC(lncInstance);
+      setIsPaired(Boolean(lncInstance?.credentials?.isPaired));
       setPairingPhrase('');
+      setPassword('');
     } catch (error) {
       console.error('LNC connection error:', error);
       setConnectionError(error.message || 'Failed to connect. Check phrase/proxy.');
+      setLNC(null);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  const handleLogin = async (event) => {
+    event.preventDefault();
+    setConnectionError(null);
+    setIsConnecting(true);
+    try {
+      if (!LNC) { throw new Error("LNC constructor not available."); }
+      const trimmedPassword = password.trim();
+      if (!trimmedPassword) {
+        throw new Error('Password is required.');
+      }
+
+      const lncInstance = new LNC({});
+      if (!lncInstance?.credentials?.isPaired) {
+        throw new Error('No paired credentials found. Connect your node first.');
+      }
+
+      lncInstance.credentials.password = trimmedPassword;
+      await lncInstance.connect();
+
+      setLNC(lncInstance);
+      setIsPaired(Boolean(lncInstance?.credentials?.isPaired));
+      setPassword('');
+    } catch (error) {
+      console.error('LNC login error:', error);
+      setConnectionError(error.message || 'Failed to login. Check password.');
       setLNC(null);
     } finally {
       setIsConnecting(false);
@@ -199,7 +257,7 @@ function App() {
   }, [lnc]);
 
   useEffect(() => {
-    if (lnc && lnc.isReady) {
+    if (lnc && lnc.isConnected) {
       console.log('LNC ready, fetching node data...');
       getInfo();
       listChannels();
@@ -400,9 +458,13 @@ function App() {
         toggleDarkMode={toggleDarkMode}
         pairingPhrase={pairingPhrase}
         setPairingPhrase={setPairingPhrase}
+        password={password}
+        setPassword={setPassword}
         isConnecting={isConnecting}
         handleConnect={handleConnect}
+        handleLogin={handleLogin}
         connectionError={connectionError}
+        isPaired={isPaired}
       />
     );
   }
