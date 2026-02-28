@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import './App.css';
 import { Buffer } from 'buffer';
 import LNC, { taprpc } from '@lightninglabs/lnc-web';
@@ -15,8 +15,10 @@ import DarkModeToggle from './components/DarkModeToggle';
 import MintAssetForm from './components/MintAssetForm';
 import PendingBatchDisplay from './components/PendingBatchDisplay';
 import OwnedAssetsList from './components/OwnedAssetsList';
+import ChannelAssetsList from './components/ChannelAssetsList';
 import FundChannelForm from './components/FundChannelForm';
 import PeersModal from './components/PeersModal';
+import FeedbackMessage from './components/FeedbackMessage';
 
 function App() {
   // LNC & Node State
@@ -31,6 +33,7 @@ function App() {
     }
   });
   const [assets, setAssets] = useState([]);
+  const [channelAssets, setChannelAssets] = useState([]);
   const [batchAssets, setBatchAssets] = useState([]);
   const [nodeChannels, setChannels] = useState([]);
   const [nodeInfo, setNodeInfo] = useState(null);
@@ -64,6 +67,18 @@ function App() {
   const [fundChannelSuccess, setFundChannelSuccess] = useState(null);
   const [isFunding, setIsFunding] = useState(false);
   const [isPeersModalOpen, setIsPeersModalOpen] = useState(false);
+
+  // Tap Asset Invoice State
+  const [tapAssetChannels, setTapAssetChannels] = useState([]);
+  const [isLoadingTapAssetChannels, setIsLoadingTapAssetChannels] = useState(false);
+  const [tapAssetChannelsError, setTapAssetChannelsError] = useState(null);
+  const [selectedInvoiceAssetId, setSelectedInvoiceAssetId] = useState('');
+  const [selectedInvoicePeerPubkey, setSelectedInvoicePeerPubkey] = useState('');
+  const [tapInvoiceAmount, setTapInvoiceAmount] = useState('');
+  const [isCreatingTapInvoice, setIsCreatingTapInvoice] = useState(false);
+  const [tapInvoiceError, setTapInvoiceError] = useState(null);
+  const [tapInvoiceSuccess, setTapInvoiceSuccess] = useState(null);
+  const [latestTapInvoice, setLatestTapInvoice] = useState(null);
 
   // UI State
   const [darkMode, setDarkMode] = useState(() => {
@@ -108,6 +123,247 @@ function App() {
     Object.entries(colors).forEach(([key, value]) => root.style.setProperty(key, value));
   }, [darkMode]);
 
+  const bytesLikeToHex = useCallback((value) => {
+    if (!value) return '';
+    try {
+      if (value instanceof Uint8Array) {
+        return Buffer.from(value).toString('hex');
+      }
+      if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (/^[0-9a-f]+$/.test(normalized)) return normalized;
+        return Buffer.from(value, 'base64').toString('hex');
+      }
+    } catch (error) {
+      console.error('Failed converting bytes-like value to hex:', error);
+    }
+    return '';
+  }, []);
+
+  const assetIdToHex = useCallback((asset) => {
+    const raw = asset?.assetGenesis?.assetId;
+    if (!raw) return '';
+    if (typeof raw === 'string') {
+      if (/^[0-9a-f]+$/i.test(raw)) return raw.toLowerCase();
+      const fromB64 = bytesLikeToHex(raw);
+      if (fromB64) return fromB64;
+    }
+    return bytesLikeToHex(raw);
+  }, [bytesLikeToHex]);
+
+  const extractPeerPubkeyHex = useCallback((channel) => {
+    return bytesLikeToHex(
+      channel?.peerPubkey ||
+      channel?.peerPubKey ||
+      channel?.remotePubkey ||
+      channel?.remotePubKey ||
+      channel?.peer
+    );
+  }, [bytesLikeToHex]);
+
+  const parseChannelAssetBalances = useCallback((channels) => {
+    const assetsById = new Map();
+
+    const normalizeIntString = (value) => {
+      if (typeof value === 'number') {
+        return Number.isFinite(value) && value >= 0 ? String(Math.trunc(value)) : '0';
+      }
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        return /^\d+$/.test(trimmed) ? trimmed : '0';
+      }
+      return '0';
+    };
+
+    const addIntStrings = (a, b) => {
+      const aNorm = normalizeIntString(a);
+      const bNorm = normalizeIntString(b);
+      let i = aNorm.length - 1;
+      let j = bNorm.length - 1;
+      let carry = 0;
+      let out = '';
+
+      while (i >= 0 || j >= 0 || carry > 0) {
+        const digitA = i >= 0 ? aNorm.charCodeAt(i) - 48 : 0;
+        const digitB = j >= 0 ? bNorm.charCodeAt(j) - 48 : 0;
+        const sum = digitA + digitB + carry;
+        out = String(sum % 10) + out;
+        carry = Math.floor(sum / 10);
+        i -= 1;
+        j -= 1;
+      }
+
+      return out.replace(/^0+(?=\d)/, '');
+    };
+
+    const parseCustomChannelData = (rawData) => {
+      if (!rawData) return null;
+      if (typeof rawData === 'object' && !(rawData instanceof Uint8Array)) return rawData;
+
+      const parseJsonString = (str) => {
+        if (!str?.trim()) return null;
+        try {
+          return JSON.parse(str);
+        } catch (_error) {
+          return null;
+        }
+      };
+
+      if (rawData instanceof Uint8Array) {
+        const asUtf8 = Buffer.from(rawData).toString('utf8');
+        return parseJsonString(asUtf8);
+      }
+
+      if (typeof rawData === 'string') {
+        const fromPlain = parseJsonString(rawData);
+        if (fromPlain) return fromPlain;
+
+        try {
+          const decoded = Buffer.from(rawData, 'base64').toString('utf8');
+          return parseJsonString(decoded);
+        } catch (_error) {
+          return null;
+        }
+      }
+
+      return null;
+    };
+
+    const upsertAsset = ({
+      assetIdHex,
+      name,
+      decimalDisplay,
+      localDelta,
+      remoteDelta,
+      capacityDelta,
+      channelKey,
+    }) => {
+      if (!assetIdHex) return;
+      if (!assetsById.has(assetIdHex)) {
+        assetsById.set(assetIdHex, {
+          assetIdHex,
+          name: name || 'Unknown Asset',
+          decimalDisplay,
+          localBalance: '0',
+          remoteBalance: '0',
+          channelCapacity: '0',
+          channelKeys: new Set(),
+        });
+      }
+
+      const current = assetsById.get(assetIdHex);
+      if ((!current.name || current.name === 'Unknown Asset') && name) current.name = name;
+      if ((current.decimalDisplay === undefined || current.decimalDisplay === null) && decimalDisplay !== undefined && decimalDisplay !== null) {
+        current.decimalDisplay = decimalDisplay;
+      }
+
+      current.localBalance = addIntStrings(current.localBalance, localDelta);
+      current.remoteBalance = addIntStrings(current.remoteBalance, remoteDelta);
+      current.channelCapacity = addIntStrings(current.channelCapacity, capacityDelta);
+      if (channelKey) current.channelKeys.add(channelKey);
+    };
+
+    (Array.isArray(channels) ? channels : []).forEach((channel) => {
+      const channelKey =
+        channel?.channelPoint ||
+        channel?.channel_point ||
+        channel?.chanId ||
+        channel?.chan_id ||
+        channel?.scid ||
+        `${Math.random()}`;
+
+      const channelData = parseCustomChannelData(channel?.customChannelData || channel?.custom_channel_data);
+      if (!channelData || typeof channelData !== 'object') return;
+
+      const fundingAssets = channelData?.fundingAssets || channelData?.funding_assets || [];
+      const localAssets = channelData?.localAssets || channelData?.local_assets || [];
+      const remoteAssets = channelData?.remoteAssets || channelData?.remote_assets || [];
+      const channelCapacity = channelData?.capacity || 0;
+
+      const metaByAssetId = new Map();
+
+      (Array.isArray(fundingAssets) ? fundingAssets : []).forEach((fundingAsset) => {
+        const genesis = fundingAsset?.assetGenesis || fundingAsset?.asset_genesis || {};
+        const fundingAssetId = bytesLikeToHex(genesis?.assetId || genesis?.asset_id || fundingAsset?.assetId || fundingAsset?.asset_id);
+        if (!fundingAssetId) return;
+
+        metaByAssetId.set(fundingAssetId, {
+          name: genesis?.name || fundingAsset?.name || 'Unknown Asset',
+          decimalDisplay: fundingAsset?.decimalDisplay ?? fundingAsset?.decimal_display,
+        });
+
+        upsertAsset({
+          assetIdHex: fundingAssetId,
+          name: genesis?.name || fundingAsset?.name,
+          decimalDisplay: fundingAsset?.decimalDisplay ?? fundingAsset?.decimal_display,
+          capacityDelta: channelCapacity,
+          channelKey,
+        });
+      });
+
+      (Array.isArray(localAssets) ? localAssets : []).forEach((entry) => {
+        const entryId = bytesLikeToHex(entry?.assetId || entry?.asset_id);
+        if (!entryId) return;
+
+        const meta = metaByAssetId.get(entryId) || {};
+        upsertAsset({
+          assetIdHex: entryId,
+          name: meta.name,
+          decimalDisplay: meta.decimalDisplay,
+          localDelta: entry?.amount,
+          channelKey,
+        });
+      });
+
+      (Array.isArray(remoteAssets) ? remoteAssets : []).forEach((entry) => {
+        const entryId = bytesLikeToHex(entry?.assetId || entry?.asset_id);
+        if (!entryId) return;
+
+        const meta = metaByAssetId.get(entryId) || {};
+        upsertAsset({
+          assetIdHex: entryId,
+          name: meta.name,
+          decimalDisplay: meta.decimalDisplay,
+          remoteDelta: entry?.amount,
+          channelKey,
+        });
+      });
+    });
+
+    return Array.from(assetsById.values())
+      .map((item) => ({
+        assetIdHex: item.assetIdHex,
+        name: item.name,
+        decimalDisplay: item.decimalDisplay,
+        localBalance: item.localBalance,
+        remoteBalance: item.remoteBalance,
+        totalInChannels: addIntStrings(item.localBalance, item.remoteBalance),
+        channelCapacity: item.channelCapacity,
+        channelsCount: item.channelKeys.size,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [bytesLikeToHex]);
+
+  const invoiceChannelAssets = useMemo(() => {
+    return (Array.isArray(channelAssets) ? channelAssets : [])
+      .filter((item) => /^[0-9a-f]+$/i.test(item?.assetIdHex || ''));
+  }, [channelAssets]);
+
+  const totalAssetsCount = useMemo(() => {
+    const allAssetIds = new Set();
+
+    (Array.isArray(assets) ? assets : []).forEach((asset) => {
+      const id = assetIdToHex(asset);
+      if (id) allAssetIds.add(id);
+    });
+
+    invoiceChannelAssets.forEach((asset) => {
+      if (asset.assetIdHex) allAssetIds.add(asset.assetIdHex.toLowerCase());
+    });
+
+    return allAssetIds.size;
+  }, [assets, invoiceChannelAssets, assetIdToHex]);
+
   const handleConnect = async (event) => {
     event.preventDefault();
     setConnectionError(null);
@@ -124,12 +380,13 @@ function App() {
         throw new Error('Password is required.');
       }
 
-      const lncInstance = new LNC({});
-      lncInstance.credentials.pairingPhrase = trimmedPairingPhrase;
+      const lncInstance = new LNC({
+        pairingPhrase: trimmedPairingPhrase,
+        password: trimmedPassword,
+      });
       await lncInstance.connect();
       // Verify node connectivity before persisting encrypted credentials.
       await lncInstance.lnd.lightning.listChannels();
-      lncInstance.credentials.password = trimmedPassword;
 
       setLNC(lncInstance);
       setIsPaired(Boolean(lncInstance?.credentials?.isPaired));
@@ -139,6 +396,11 @@ function App() {
       console.error('LNC connection error:', error);
       setConnectionError(error.message || 'Failed to connect. Check phrase/proxy.');
       setLNC(null);
+      try {
+        setIsPaired(Boolean(new LNC({})?.credentials?.isPaired));
+      } catch (_refreshError) {
+        setIsPaired(false);
+      }
     } finally {
       setIsConnecting(false);
     }
@@ -155,12 +417,13 @@ function App() {
         throw new Error('Password is required.');
       }
 
-      const lncInstance = new LNC({});
+      const lncInstance = new LNC({
+        password: trimmedPassword,
+      });
       if (!lncInstance?.credentials?.isPaired) {
         throw new Error('No paired credentials found. Connect your node first.');
       }
 
-      lncInstance.credentials.password = trimmedPassword;
       await lncInstance.connect();
 
       setLNC(lncInstance);
@@ -170,6 +433,11 @@ function App() {
       console.error('LNC login error:', error);
       setConnectionError(error.message || 'Failed to login. Check password.');
       setLNC(null);
+      try {
+        setIsPaired(Boolean(new LNC({})?.credentials?.isPaired));
+      } catch (_refreshError) {
+        setIsPaired(false);
+      }
     } finally {
       setIsConnecting(false);
     }
@@ -183,9 +451,18 @@ function App() {
 
   const listChannels = useCallback(async () => {
     if (!lnc || !lnc.lnd?.lightning) { console.error("LNC or LND lightning service not initialized for listChannels"); return; }
-    try { const r = await lnc.lnd.lightning.listChannels(); setChannels(Array.isArray(r?.channels) ? r.channels : []); }
-    catch (error) { console.error("Failed to list channels:", error); setChannels([]); }
-  }, [lnc]);
+    try {
+      const response = await lnc.lnd.lightning.listChannels();
+      const channels = Array.isArray(response?.channels) ? response.channels : [];
+      setChannels(channels);
+      setChannelAssets(parseChannelAssetBalances(channels));
+    }
+    catch (error) {
+      console.error("Failed to list channels:", error);
+      setChannels([]);
+      setChannelAssets([]);
+    }
+  }, [lnc, parseChannelAssetBalances]);
 
   const listPeers = useCallback(async () => {
     if (!lnc || !lnc.lnd?.lightning) {
@@ -256,6 +533,49 @@ function App() {
     } catch (error) { console.error("Failed to list batches:", error); setBatchAssets([]); }
   }, [lnc]);
 
+  const listTapAssetChannels = useCallback(async () => {
+    if (!lnc?.tapd?.tapChannels) {
+      setTapAssetChannels([]);
+      setTapAssetChannelsError('Taproot Asset channel service is not available on this node.');
+      return;
+    }
+
+    const { tapChannels } = lnc.tapd;
+    setIsLoadingTapAssetChannels(true);
+    setTapAssetChannelsError(null);
+
+    try {
+      const methodCandidates = ['listChannels', 'listAssetChannels'];
+      let channels = [];
+
+      for (const methodName of methodCandidates) {
+        if (typeof tapChannels?.[methodName] !== 'function') continue;
+        const response = await tapChannels[methodName]({});
+        const batch = response?.channels || response?.assetChannels || response?.tapChannels || [];
+        if (Array.isArray(batch) && batch.length > 0) {
+          channels = batch;
+          break;
+        }
+      }
+
+      if (!channels.length) {
+        setTapAssetChannels([]);
+        setTapAssetChannelsError(
+          'No Taproot Asset channels found yet. Open/fund an asset channel first.'
+        );
+        return;
+      }
+
+      setTapAssetChannels(channels);
+    } catch (error) {
+      console.error('Failed to list Taproot Asset channels:', error);
+      setTapAssetChannels([]);
+      setTapAssetChannelsError(error.message || 'Failed to load Taproot Asset channels.');
+    } finally {
+      setIsLoadingTapAssetChannels(false);
+    }
+  }, [lnc]);
+
   useEffect(() => {
     if (lnc && lnc.isConnected) {
       console.log('LNC ready, fetching node data...');
@@ -264,14 +584,36 @@ function App() {
       listAssets();
       listBatches();
       listPeers();
+      listTapAssetChannels();
     } else {
       setNodeInfo(null); 
       setChannels([]); 
       setAssets([]); 
+      setChannelAssets([]);
       setBatchAssets([]);
       setNodePeers([]);
+      setTapAssetChannels([]);
+      setTapAssetChannelsError(null);
+      setSelectedInvoicePeerPubkey('');
+      setSelectedInvoiceAssetId('');
+      setTapInvoiceAmount('');
+      setTapInvoiceError(null);
+      setTapInvoiceSuccess(null);
+      setLatestTapInvoice(null);
     }
-  }, [lnc, getInfo, listChannels, listAssets, listBatches,listPeers]); // Added useCallback dependencies
+  }, [lnc, getInfo, listChannels, listAssets, listBatches, listPeers, listTapAssetChannels]); // Added useCallback dependencies
+
+  useEffect(() => {
+    if (!invoiceChannelAssets.length) {
+      setSelectedInvoiceAssetId('');
+      return;
+    }
+
+    const stillValid = invoiceChannelAssets.some((asset) => asset.assetIdHex === selectedInvoiceAssetId);
+    if (!stillValid) {
+      setSelectedInvoiceAssetId(invoiceChannelAssets[0].assetIdHex);
+    }
+  }, [invoiceChannelAssets, selectedInvoiceAssetId]);
 
   // Mint Asset Form Handlers
   const handleAssetTypeChange = (e) => {
@@ -446,6 +788,71 @@ function App() {
     } finally { setIsFunding(false); }
   };
 
+  const handleCreateTapAssetInvoice = async (event) => {
+    if (event) event.preventDefault();
+    setTapInvoiceError(null);
+    setTapInvoiceSuccess(null);
+    setIsCreatingTapInvoice(true);
+
+    if (!lnc?.tapd?.tapChannels?.addInvoice) {
+      setTapInvoiceError('tapChannels.addInvoice is not available on this LNC session.');
+      setIsCreatingTapInvoice(false);
+      return;
+    }
+
+    try {
+      const amount = parseInt(tapInvoiceAmount, 10);
+      if (Number.isNaN(amount) || amount <= 0) throw new Error('Asset amount must be a positive number.');
+      if (!selectedInvoiceAssetId?.trim()) throw new Error('Select an asset first.');
+      if (!/^[0-9a-f]+$/i.test(selectedInvoiceAssetId)) throw new Error('Selected asset ID must be hex.');
+
+      const request = {
+        assetId: Buffer.from(selectedInvoiceAssetId.trim(), 'hex'),
+        assetAmount: amount.toString(),
+        invoiceRequest: {
+          memo: `Tap asset invoice - ${new Date().toISOString()}`,
+        },
+      };
+
+      if (selectedInvoicePeerPubkey?.trim()) {
+        if (!/^[0-9a-f]+$/i.test(selectedInvoicePeerPubkey)) {
+          throw new Error('Selected peer pubkey must be hex.');
+        }
+        request.peerPubkey = Buffer.from(selectedInvoicePeerPubkey.trim(), 'hex');
+      }
+
+      const response = await lnc.tapd.tapChannels.addInvoice(request);
+      const invoiceResult = response?.invoiceResult || {};
+      const paymentRequest =
+        invoiceResult?.paymentRequest ||
+        invoiceResult?.payment_request ||
+        invoiceResult?.payReq ||
+        invoiceResult?.pay_req ||
+        '';
+      const paymentHashHex =
+        bytesLikeToHex(invoiceResult?.rHash) ||
+        bytesLikeToHex(invoiceResult?.r_hash) ||
+        (typeof invoiceResult?.rHashStr === 'string' ? invoiceResult.rHashStr : '');
+
+      if (!paymentRequest) {
+        throw new Error('Invoice was created but no payment request was returned.');
+      }
+
+      setLatestTapInvoice({
+        paymentRequest,
+        paymentHashHex,
+        acceptedBuyQuote: response?.acceptedBuyQuote || null,
+      });
+      setTapInvoiceSuccess('Taproot Asset invoice created. Share it with your counterparty to pay with assets.');
+    } catch (error) {
+      console.error('Failed to create Taproot Asset invoice:', error);
+      setLatestTapInvoice(null);
+      setTapInvoiceError(error.message || 'Failed to create Taproot Asset invoice.');
+    } finally {
+      setIsCreatingTapInvoice(false);
+    }
+  };
+
 
   if (isConnecting && !lnc) {
     return <LoadingSpinner message="Connecting to Node..." />;
@@ -477,7 +884,7 @@ function App() {
         <AppHeader
           nodeInfo={nodeInfo}
           nodeChannelsCount={nodeChannels?.length}
-          assetsCount={assets?.length}
+          assetsCount={totalAssetsCount}
           peersCount={nodePeers?.length} 
           onShowPeers={() => setIsPeersModalOpen(true)} // <-- Pass the handler here
         />
@@ -528,6 +935,10 @@ function App() {
                 darkMode={darkMode}
                 taprpc={taprpc}
               />
+              <ChannelAssetsList
+                channelAssets={channelAssets}
+                darkMode={darkMode}
+              />
               {assets?.length > 0 && (
                 <FundChannelForm
                   assetAmount={assetAmount} setAssetAmount={setAssetAmount}
@@ -544,6 +955,179 @@ function App() {
                   onSubmit={handleFundChannelSubmit}
                 />
               )}
+              <section>
+                <h2 className="text-2xl font-bold mb-5" style={{ color: 'var(--text-primary)' }}>
+                  Create Taproot Asset Invoice
+                </h2>
+                <form
+                  onSubmit={handleCreateTapAssetInvoice}
+                  className="rounded-xl p-6 transition-colors duration-300"
+                  style={{
+                    backgroundColor: 'var(--form-bg)',
+                    border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'}`,
+                    boxShadow: darkMode ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.05)',
+                  }}
+                >
+                  <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
+                    Uses <code>lnc.tapd.tapChannels.addInvoice</code> so the invoice is payable in the selected Taproot Asset.
+                  </p>
+
+                  <div className="mb-4">
+                    <label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }} htmlFor="tapInvoiceAssetId">
+                      Asset
+                    </label>
+                    <select
+                      id="tapInvoiceAssetId"
+                      className="w-full px-3 py-2 rounded-md transition-colors duration-200"
+                      style={{
+                        backgroundColor: 'var(--input-bg)',
+                        color: 'var(--text-primary)',
+                        border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
+                      }}
+                      value={selectedInvoiceAssetId}
+                      onChange={(e) => setSelectedInvoiceAssetId(e.target.value)}
+                      required
+                      disabled={isCreatingTapInvoice || !invoiceChannelAssets.length}
+                    >
+                      <option value="" disabled>Select an asset from channels</option>
+                      {invoiceChannelAssets.map((asset) => {
+                        const currentAssetIdHex = asset.assetIdHex;
+                        return (
+                          <option key={currentAssetIdHex} value={currentAssetIdHex}>
+                            {`${asset.name || 'Unnamed'} (in channels: ${asset.totalInChannels || '0'})`}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    {!invoiceChannelAssets.length && (
+                      <p className="text-xs mt-2" style={{ color: 'var(--error-text)' }}>
+                        No Taproot Assets found in channels. Open/fund a Taproot Asset channel first.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }} htmlFor="tapInvoiceAmount">
+                      Asset Amount
+                    </label>
+                    <input
+                      id="tapInvoiceAmount"
+                      className="w-full px-3 py-2 rounded-md transition-colors duration-200"
+                      style={{
+                        backgroundColor: 'var(--input-bg)',
+                        color: 'var(--text-primary)',
+                        border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
+                      }}
+                      type="number"
+                      min="1"
+                      placeholder="e.g. 10"
+                      value={tapInvoiceAmount}
+                      onChange={(e) => setTapInvoiceAmount(e.target.value)}
+                      required
+                      disabled={isCreatingTapInvoice}
+                    />
+                  </div>
+
+                  <div className="mb-5">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <label className="block text-sm font-bold" style={{ color: 'var(--text-primary)' }} htmlFor="tapInvoicePeerPubkey">
+                        Channel Peer (optional)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={listTapAssetChannels}
+                        className="text-xs px-2 py-1 rounded border"
+                        style={{
+                          borderColor: 'var(--border-color)',
+                          color: 'var(--text-secondary)',
+                          backgroundColor: 'transparent',
+                        }}
+                        disabled={isLoadingTapAssetChannels || isCreatingTapInvoice}
+                      >
+                        {isLoadingTapAssetChannels ? 'Refreshing...' : 'Refresh channels'}
+                      </button>
+                    </div>
+                    <select
+                      id="tapInvoicePeerPubkey"
+                      className="w-full px-3 py-2 rounded-md transition-colors duration-200"
+                      style={{
+                        backgroundColor: 'var(--input-bg)',
+                        color: 'var(--text-primary)',
+                        border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
+                      }}
+                      value={selectedInvoicePeerPubkey}
+                      onChange={(e) => setSelectedInvoicePeerPubkey(e.target.value)}
+                      disabled={isCreatingTapInvoice}
+                    >
+                      <option value="">Auto RFQ (all suitable peers)</option>
+                      {[...new Set(tapAssetChannels.map((channel) => extractPeerPubkeyHex(channel)).filter(Boolean))].map((peerHex) => (
+                        <option key={peerHex} value={peerHex}>{peerHex}</option>
+                      ))}
+                    </select>
+                    {tapAssetChannelsError && (
+                      <p className="text-xs mt-2" style={{ color: 'var(--error-text)' }}>
+                        {tapAssetChannelsError}
+                      </p>
+                    )}
+                    {tapAssetChannels.length > 0 && (
+                      <div className="mt-3 max-h-32 overflow-y-auto pr-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        {tapAssetChannels.map((channel, idx) => (
+                          <div
+                            key={`${extractPeerPubkeyHex(channel)}-${idx}`}
+                            className="py-1 border-b"
+                            style={{ borderColor: 'var(--border-color)' }}
+                          >
+                            <span className="font-medium" style={{ color: 'var(--text-primary)' }}>Peer:</span>{' '}
+                            {extractPeerPubkeyHex(channel) || 'unknown'}{' '}
+                            {channel?.assetId || channel?.asset_id ? (
+                              <>
+                                <span className="font-medium" style={{ color: 'var(--text-primary)' }}>Asset:</span>{' '}
+                                {bytesLikeToHex(channel?.assetId || channel?.asset_id)}
+                              </>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    className="w-full py-2 px-4 rounded-md font-medium text-white transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]"
+                    style={{
+                      background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                      boxShadow: darkMode ? '0 4px 12px rgba(59, 130, 246, 0.3)' : '0 4px 12px rgba(59, 130, 246, 0.2)',
+                      opacity: isCreatingTapInvoice ? '0.7' : '1',
+                      cursor: isCreatingTapInvoice ? 'not-allowed' : 'pointer',
+                    }}
+                    type="submit"
+                    disabled={isCreatingTapInvoice || !selectedInvoiceAssetId}
+                  >
+                    {isCreatingTapInvoice ? 'Creating Tap Asset Invoice...' : 'Create Tap Asset Invoice'}
+                  </button>
+
+                  <FeedbackMessage type="error" message={tapInvoiceError} darkMode={darkMode} />
+                  <FeedbackMessage type="success" message={tapInvoiceSuccess} darkMode={darkMode} />
+
+                  {latestTapInvoice?.paymentRequest && (
+                    <div
+                      className="mt-4 p-3 rounded-md text-sm break-all"
+                      style={{
+                        backgroundColor: 'var(--input-bg)',
+                        border: `1px solid ${darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                      }}
+                    >
+                      <p className="font-semibold mb-1">Payment Request</p>
+                      <p style={{ fontFamily: 'monospace' }}>{latestTapInvoice.paymentRequest}</p>
+                      {latestTapInvoice.paymentHashHex ? (
+                        <>
+                          <p className="font-semibold mt-3 mb-1">Payment Hash</p>
+                          <p style={{ fontFamily: 'monospace' }}>{latestTapInvoice.paymentHashHex}</p>
+                        </>
+                      ) : null}
+                    </div>
+                  )}
+                </form>
+              </section>
             </div>
           </div>
         </div>
