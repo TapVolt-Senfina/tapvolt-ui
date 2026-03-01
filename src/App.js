@@ -379,13 +379,12 @@ function App() {
         throw new Error('Password is required.');
       }
 
-      const lncInstance = new LNC({
-        pairingPhrase: trimmedPairingPhrase,
-        password: trimmedPassword,
-      });
+      const lncInstance = new LNC({});
+      lncInstance.credentials.pairingPhrase = trimmedPairingPhrase;
       await lncInstance.connect();
       // Verify node connectivity before persisting encrypted credentials.
       await lncInstance.lnd.lightning.listChannels();
+      lncInstance.credentials.password = trimmedPassword;
 
       setLNC(lncInstance);
       setIsPaired(Boolean(lncInstance?.credentials?.isPaired));
@@ -416,9 +415,8 @@ function App() {
         throw new Error('Password is required.');
       }
 
-      const lncInstance = new LNC({
-        password: trimmedPassword,
-      });
+      const lncInstance = new LNC({});
+      lncInstance.credentials.password = trimmedPassword;
       if (!lncInstance?.credentials?.isPaired) {
         throw new Error('No paired credentials found. Connect your node first.');
       }
