@@ -159,22 +159,45 @@ const PeersModal = ({ isOpen, onClose, peers, darkMode, lnc, onPeerAdded }) => {
                   onMouseEnter={(e) => e.currentTarget.style.backgroundColor = itemBgHover}
                   onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-primary)'}
                 >
-                  <p className="font-mono text-sm break-all">
-                    <strong>Pubkey:</strong> {peer.pub_key}
-                  </p>
-                  <p className="text-sm">
-                    <strong>Address:</strong> {peer.address}
-                  </p>
-                  {/* ... other peer details ... */}
-                  <p className="text-sm">
-                    <strong>Bytes Sent:</strong> {peer.bytes_sent?.toString()}
-                  </p>
-                  <p className="text-sm">
-                    <strong>Bytes Recv:</strong> {peer.bytes_recv?.toString()}
-                  </p>
-                  <p className="text-sm">
-                    <strong>Inbound:</strong> {peer.inbound ? 'Yes' : 'No'}
-                  </p>
+                  <div className="flex flex-col gap-1">
+                    {peer.alias && (
+                      <p className="text-sm font-semibold" style={{ color: 'var(--accent-light)' }}>
+                        <strong>Alias:</strong> {peer.alias}
+                      </p>
+                    )}
+                    <p className="font-mono text-sm break-all">
+                      <strong>Pubkey:</strong> {peer.pub_key || peer.pubkey || peer.pubKey}
+                    </p>
+                    <p className="font-mono text-sm">
+                      <strong>Address:</strong> {peer.address}
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <p className="text-sm">
+                        <strong>Ping Time:</strong> {peer.ping_time || peer.pingTime || 'N/A'} {peer.ping_time || peer.pingTime ? 'µs' : ''}
+                      </p>
+                      <p className="text-sm">
+                        <strong>Inbound:</strong> {peer.inbound ? 'Yes' : 'No'}
+                      </p>
+                      <p className="text-sm">
+                        <strong>Sync Type:</strong> {peer.sync_type || peer.syncType || 'N/A'}
+                      </p>
+                      <p className="text-sm">
+                        <strong>Flap Count:</strong> {peer.flap_count || peer.flapCount || '0'}
+                      </p>
+                      <p className="text-sm">
+                        <strong>Bytes Sent:</strong> {peer.bytes_sent?.toString() || peer.bytesSent?.toString() || '0'}
+                      </p>
+                      <p className="text-sm">
+                        <strong>Bytes Recv:</strong> {peer.bytes_recv?.toString() || peer.bytesRecv?.toString() || '0'}
+                      </p>
+                      <p className="text-sm">
+                        <strong>Sats Sent:</strong> {peer.sat_sent?.toString() || peer.satSent?.toString() || '0'}
+                      </p>
+                      <p className="text-sm">
+                        <strong>Sats Recv:</strong> {peer.sat_recv?.toString() || peer.satRecv?.toString() || '0'}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>

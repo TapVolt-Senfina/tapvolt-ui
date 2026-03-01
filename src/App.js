@@ -468,13 +468,26 @@ function App() {
     }
     try {
       const response = await lnc.lnd.lightning.listPeers();
-      console.log(response)
-      setNodePeers(Array.isArray(response?.peers) ? response.peers : []);
+      const peers = Array.isArray(response?.peers) ? response.peers : [];
+      const peersWithAliases = await Promise.all(peers.map(async (peer) => {
+        let alias = '';
+        const pubkey = bytesLikeToHex(peer.pubKey || peer.pub_key || peer.pubkey);
+        if (pubkey) {
+          try {
+            const nodeInfo = await lnc.lnd.lightning.getNodeInfo({ pub_key: pubkey, include_channels: false });
+            alias = nodeInfo?.node?.alias || '';
+          } catch (e) {
+            console.warn("Failed to fetch node info for peer", pubkey);
+          }
+        }
+        return { ...peer, alias, pub_key: pubkey };
+      }));
+      setNodePeers(peersWithAliases);
     } catch (error) {
       console.error("Failed to list peers:", error);
       setNodePeers([]);
     }
-  }, [lnc]);
+  }, [lnc, bytesLikeToHex]);
 
   const listAssets = useCallback(async () => {
     if (!lnc || !lnc.tapd?.taprootAssets) { console.error("LNC or Taproot Assets service not initialized for listAssets"); return; }
