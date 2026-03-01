@@ -1,24 +1,23 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import './App.css';
 import { Buffer } from 'buffer';
-import LNC, { taprpc } from '@lightninglabs/lnc-web';
+import LNC from '@lightninglabs/lnc-web';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 // Constants and Helpers
 import { ASSET_TYPE_COLLECTIBLE_NUM, ASSET_VERSION_V0_NUM, META_TYPE_OPAQUE_NUM, ASSET_TYPE_NORMAL_NUM } from './utils/constants';
-// getEnumName is imported by components that need it directly from utils/helpers
 
 // Components
 import LoadingSpinner from './components/LoadingSpinner';
 import ConnectScreen from './components/ConnectScreen';
 import AppHeader from './components/AppHeader';
 import DarkModeToggle from './components/DarkModeToggle';
-import MintAssetForm from './components/MintAssetForm';
-import PendingBatchDisplay from './components/PendingBatchDisplay';
-import OwnedAssetsList from './components/OwnedAssetsList';
-import ChannelAssetsList from './components/ChannelAssetsList';
-import FundChannelForm from './components/FundChannelForm';
+import NavBar from './components/NavBar';
 import PeersModal from './components/PeersModal';
-import FeedbackMessage from './components/FeedbackMessage';
+
+// Pages
+import RoutingPage from './pages/RoutingPage';
+import TaprootAssetsPage from './pages/TaprootAssetsPage';
 
 function App() {
   // LNC & Node State
@@ -56,7 +55,7 @@ function App() {
   const [isMinting, setIsMinting] = useState(false);
 
   // Peers
-  const [nodePeers,setNodePeers] = useState();
+  const [nodePeers, setNodePeers] = useState();
 
   // Fund Channel Form State
   const [assetAmount, setAssetAmount] = useState('');
@@ -97,29 +96,29 @@ function App() {
     const root = document.documentElement;
     const colors = darkMode
       ? {
-          '--bg-primary': '#121212', '--bg-secondary': '#1e1e1e', '--bg-card': '#252525',
-          '--text-primary': '#e0e0e0', '--text-secondary': '#a0a0a0', '--border-color': '#333333',
-          '--accent-light': '#4f46e5', '--accent-dark': '#3730a3', '--success-bg': '#064e3b',
-          '--success-text': '#10b981', '--error-bg': '#7f1d1d', '--error-text': '#f87171',
-          '--form-bg': '#1f1f1f', '--batch-bg': '#172554', '--batch-border': '#1e3a8a',
-          '--input-bg': '#2a2a2a', '--badge-bg': '#333333',
-          // Added from your original file input style for consistency
-          '--file-bg': 'rgba(255,255,255,0.1)',
-          '--file-hover-bg': 'rgba(255,255,255,0.2)',
-          '--file-text': 'var(--text-primary)', // Assuming file text color matches primary text
-        }
+        '--bg-primary': '#121212', '--bg-secondary': '#1e1e1e', '--bg-card': '#252525',
+        '--text-primary': '#e0e0e0', '--text-secondary': '#a0a0a0', '--border-color': '#333333',
+        '--accent-light': '#4f46e5', '--accent-dark': '#3730a3', '--success-bg': '#064e3b',
+        '--success-text': '#10b981', '--error-bg': '#7f1d1d', '--error-text': '#f87171',
+        '--form-bg': '#1f1f1f', '--batch-bg': '#172554', '--batch-border': '#1e3a8a',
+        '--input-bg': '#2a2a2a', '--badge-bg': '#333333',
+        // Added from your original file input style for consistency
+        '--file-bg': 'rgba(255,255,255,0.1)',
+        '--file-hover-bg': 'rgba(255,255,255,0.2)',
+        '--file-text': 'var(--text-primary)', // Assuming file text color matches primary text
+      }
       : {
-          '--bg-primary': '#f9fafb', '--bg-secondary': '#ffffff', '--bg-card': '#ffffff',
-          '--text-primary': '#1f2937', '--text-secondary': '#6b7280', '--border-color': '#e5e7eb',
-          '--accent-light': '#4f46e5', '--accent-dark': '#3730a3', '--success-bg': '#ecfdf5',
-          '--success-text': '#047857', '--error-bg': '#fef2f2', '--error-text': '#b91c1c',
-          '--form-bg': '#f8fafc', '--batch-bg': '#eff6ff', '--batch-border': '#bfdbfe',
-          '--input-bg': '#ffffff', '--badge-bg': '#f3f4f6',
-          // Added from your original file input style for consistency
-          '--file-bg': '#f0f0f0',
-          '--file-hover-bg': '#e0e0e0',
-          '--file-text': 'var(--text-primary)',
-        };
+        '--bg-primary': '#f9fafb', '--bg-secondary': '#ffffff', '--bg-card': '#ffffff',
+        '--text-primary': '#1f2937', '--text-secondary': '#6b7280', '--border-color': '#e5e7eb',
+        '--accent-light': '#4f46e5', '--accent-dark': '#3730a3', '--success-bg': '#ecfdf5',
+        '--success-text': '#047857', '--error-bg': '#fef2f2', '--error-text': '#b91c1c',
+        '--form-bg': '#f8fafc', '--batch-bg': '#eff6ff', '--batch-border': '#bfdbfe',
+        '--input-bg': '#ffffff', '--badge-bg': '#f3f4f6',
+        // Added from your original file input style for consistency
+        '--file-bg': '#f0f0f0',
+        '--file-hover-bg': '#e0e0e0',
+        '--file-text': 'var(--text-primary)',
+      };
     Object.entries(colors).forEach(([key, value]) => root.style.setProperty(key, value));
   }, [darkMode]);
 
@@ -442,11 +441,11 @@ function App() {
       setIsConnecting(false);
     }
   };
-  
+
   const getInfo = useCallback(async () => {
     if (!lnc || !lnc.lnd?.lightning) { console.error("LNC or LND lightning service not initialized for getInfo"); return; }
     try { const info = await lnc.lnd.lightning.getInfo(); setNodeInfo(info); }
-    catch(error) { console.error("Failed to get node info:", error); setNodeInfo(null); }
+    catch (error) { console.error("Failed to get node info:", error); setNodeInfo(null); }
   }, [lnc]);
 
   const listChannels = useCallback(async () => {
@@ -586,9 +585,9 @@ function App() {
       listPeers();
       listTapAssetChannels();
     } else {
-      setNodeInfo(null); 
-      setChannels([]); 
-      setAssets([]); 
+      setNodeInfo(null);
+      setChannels([]);
+      setAssets([]);
       setChannelAssets([]);
       setBatchAssets([]);
       setNodePeers([]);
@@ -649,85 +648,85 @@ function App() {
       setMintAssetFilePreview(null);
     }
   };
-  
+
   const handleMintAssetSubmit = async (event) => {
     event.preventDefault();
     setMintAssetError(null); setMintAssetSuccess(null); setIsMinting(true);
     // setMintAssetFilePreview(null); // Already cleared by handleAssetTypeChange or if no file selected
 
     if (!lnc || !lnc.tapd?.mint) {
-        setMintAssetError("LNC or Taproot Mint service not initialized.");
-        setIsMinting(false); return;
+      setMintAssetError("LNC or Taproot Mint service not initialized.");
+      setIsMinting(false); return;
     }
 
     const sanitizedName = mintAssetName.replace(/[\r\n]+/g, '').trim();
     if (!sanitizedName) {
-        setMintAssetError("Asset name cannot be empty.");
-        setIsMinting(false); return;
+      setMintAssetError("Asset name cannot be empty.");
+      setIsMinting(false); return;
     }
 
     const amount = parseInt(mintAssetAmount, 10);
     if (isNaN(amount) || amount <= 0) {
-        setMintAssetError("Invalid amount. Must be a positive number.");
-        setIsMinting(false); return;
+      setMintAssetError("Invalid amount. Must be a positive number.");
+      setIsMinting(false); return;
     }
 
     const currentAssetTypeNum = mintAssetType === 'COLLECTIBLE' ? ASSET_TYPE_COLLECTIBLE_NUM : ASSET_TYPE_NORMAL_NUM;
     let metaContentForEncoding = "";
 
     if (mintAssetType === 'COLLECTIBLE' && mintAssetFile) {
-        try {
-            metaContentForEncoding = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
-                reader.onerror = (error) => reject(error);
-                reader.readAsDataURL(mintAssetFile);
-            });
-        } catch (fileError) {
-            setMintAssetError("Failed to read image file for metadata.");
-            setIsMinting(false); return;
-        }
+      try {
+        metaContentForEncoding = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = (error) => reject(error);
+          reader.readAsDataURL(mintAssetFile);
+        });
+      } catch (fileError) {
+        setMintAssetError("Failed to read image file for metadata.");
+        setIsMinting(false); return;
+      }
     } else if (mintAssetType === 'NORMAL') {
-        const trimmedMeta = mintAssetMeta.trim();
-        if (trimmedMeta) metaContentForEncoding = trimmedMeta.replace(/[\r\n]+/g, '');
+      const trimmedMeta = mintAssetMeta.trim();
+      if (trimmedMeta) metaContentForEncoding = trimmedMeta.replace(/[\r\n]+/g, '');
     }
 
     let finalMetaBase64 = "";
     if (metaContentForEncoding) {
-        try {
-            finalMetaBase64 = Buffer.from(metaContentForEncoding, 'utf8').toString('base64');
-        } catch (bufferError) {
-            setMintAssetError("Failed to encode metadata content.");
-            setIsMinting(false); return;
-        }
+      try {
+        finalMetaBase64 = Buffer.from(metaContentForEncoding, 'utf8').toString('base64');
+      } catch (bufferError) {
+        setMintAssetError("Failed to encode metadata content.");
+        setIsMinting(false); return;
+      }
     }
 
     try {
-        const { mint } = lnc.tapd;
-        const request = {
-            asset: {
-                asset_version: ASSET_VERSION_V0_NUM, // Numeric
-                asset_type: currentAssetTypeNum,    // Numeric
-                name: sanitizedName,
-                amount: amount.toString(),
-                asset_meta: { data: finalMetaBase64, type: META_TYPE_OPAQUE_NUM } // Numeric
-            },
-            short_response: false,
-        };
-        const response = await mint.mintAsset(request);
-        if (response?.pendingBatch?.batchKey) {
-            const batchKeyHex = Buffer.from(response.pendingBatch.batchKey).toString('hex');
-            setMintAssetSuccess(<>Asset minting initiated. Batch key: <div style={{overflowX: "auto"}}>{batchKeyHex}</div></>);
-            setMintAssetName(''); setMintAssetAmount(''); setMintAssetMeta('');
-            setMintAssetType('NORMAL'); setMintAssetFile(null); setMintAssetFilePreview(null);
-            listBatches();
-        } else {
-            setMintAssetError(`Failed to initiate asset minting. ${response?.error || 'Unexpected response'}`);
-        }
+      const { mint } = lnc.tapd;
+      const request = {
+        asset: {
+          asset_version: ASSET_VERSION_V0_NUM, // Numeric
+          asset_type: currentAssetTypeNum,    // Numeric
+          name: sanitizedName,
+          amount: amount.toString(),
+          asset_meta: { data: finalMetaBase64, type: META_TYPE_OPAQUE_NUM } // Numeric
+        },
+        short_response: false,
+      };
+      const response = await mint.mintAsset(request);
+      if (response?.pendingBatch?.batchKey) {
+        const batchKeyHex = Buffer.from(response.pendingBatch.batchKey).toString('hex');
+        setMintAssetSuccess(<>Asset minting initiated. Batch key: <div style={{ overflowX: "auto" }}>{batchKeyHex}</div></>);
+        setMintAssetName(''); setMintAssetAmount(''); setMintAssetMeta('');
+        setMintAssetType('NORMAL'); setMintAssetFile(null); setMintAssetFilePreview(null);
+        listBatches();
+      } else {
+        setMintAssetError(`Failed to initiate asset minting. ${response?.error || 'Unexpected response'}`);
+      }
     } catch (error) {
-        setMintAssetError(`Minting failed: ${error.message || 'Unknown error'}`);
+      setMintAssetError(`Minting failed: ${error.message || 'Unknown error'}`);
     } finally {
-        setIsMinting(false);
+      setIsMinting(false);
     }
   };
 
@@ -741,7 +740,7 @@ function App() {
       setMintAssetSuccess(`Batch finalize initiated. TXID: ${batchResponse?.batch?.batchTxid || 'N/A'}`);
       await listBatches(); await listAssets();
     } catch (error) {
-        setMintAssetError(`Finalize failed: ${error.message || 'Unknown error'}`);
+      setMintAssetError(`Finalize failed: ${error.message || 'Unknown error'}`);
     } finally { setIsMinting(false); }
   };
 
@@ -754,10 +753,10 @@ function App() {
       setMintAssetSuccess("Pending batch cancelled successfully.");
       await listBatches();
     } catch (error) {
-        setMintAssetError(`Cancel failed: ${error.message || 'Unknown error'}`);
+      setMintAssetError(`Cancel failed: ${error.message || 'Unknown error'}`);
     } finally { setIsMinting(false); }
   };
-  
+
   const handleFundChannelSubmit = async (event) => {
     if (event) event.preventDefault();
     setFundChannelError(null); setFundChannelSuccess(null); setIsFunding(true);
@@ -877,282 +876,137 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen transition-colors duration-300 p-4 sm:p-6 lg:p-8" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-      <DarkModeToggle darkMode={darkMode} toggleDarkMode={toggleDarkMode} />
+    <BrowserRouter>
+      <div className="min-h-screen transition-colors duration-300" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+        <DarkModeToggle darkMode={darkMode} toggleDarkMode={toggleDarkMode} />
 
-      <div className="max-w-6xl mx-auto rounded-2xl shadow-xl transition-all duration-300" style={{ backgroundColor: 'var(--bg-secondary)', boxShadow: darkMode ? '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2)' : '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.01)'}` }}>
-        <AppHeader
-          nodeInfo={nodeInfo}
-          nodeChannelsCount={nodeChannels?.length}
-          assetsCount={totalAssetsCount}
-          peersCount={nodePeers?.length} 
-          onShowPeers={() => setIsPeersModalOpen(true)} // <-- Pass the handler here
-        />
-        <PeersModal
-          isOpen={isPeersModalOpen}
-          onClose={() => {
-              setIsPeersModalOpen(false);
-              // Optionally clear form status when closing modal
-              // (You'd need to lift connectPeerError/Success state or pass setters if you want to clear from here)
+        <div
+          className="max-w-7xl mx-auto rounded-2xl shadow-xl transition-all duration-300"
+          style={{
+            backgroundColor: 'var(--bg-secondary)',
+            boxShadow: darkMode
+              ? '0 20px 25px -5px rgba(0,0,0,0.3), 0 10px 10px -5px rgba(0,0,0,0.2)'
+              : '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)',
+            border: `1px solid ${darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.01)'}`,
+            margin: '16px auto',
           }}
-          peers={nodePeers}
-          darkMode={darkMode}
-          lnc={lnc} // <-- Pass the LNC instance
-          onPeerAdded={listPeers} // <-- Pass the listPeers function as a callback
-        />
-        <div className="p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Left Column */}
-            <div className="space-y-8">
-              <MintAssetForm
-                mintAssetName={mintAssetName} setMintAssetName={setMintAssetName}
-                mintAssetAmount={mintAssetAmount} setMintAssetAmount={setMintAssetAmount}
-                mintAssetType={mintAssetType} 
-                onAssetTypeChange={handleAssetTypeChange}
-                mintAssetFilePreview={mintAssetFilePreview}
-                onFileChange={handleFileChange}
-                mintAssetMeta={mintAssetMeta} setMintAssetMeta={setMintAssetMeta}
-                isMinting={isMinting}
-                mintAssetError={mintAssetError}
-                mintAssetSuccess={mintAssetSuccess}
-                darkMode={darkMode}
-                onSubmit={handleMintAssetSubmit}
-              />
-              <PendingBatchDisplay
-                batchAssets={batchAssets}
-                isMinting={isMinting}
-                darkMode={darkMode}
-                onCancelBatch={handleCancelBatch}
-                onFinalizeBatch={handleFinalizeBatch}
-                taprpc={taprpc}
-              />
-            </div>
+        >
+          <AppHeader
+            nodeInfo={nodeInfo}
+            nodeChannelsCount={nodeChannels?.length}
+            assetsCount={totalAssetsCount}
+            peersCount={nodePeers?.length}
+            onShowPeers={() => setIsPeersModalOpen(true)}
+          />
 
-            {/* Right Column */}
-            <div className="space-y-8">
-              <OwnedAssetsList
-                assets={assets}
-                darkMode={darkMode}
-                taprpc={taprpc}
-              />
-              <ChannelAssetsList
-                channelAssets={channelAssets}
-                darkMode={darkMode}
-              />
-              {assets?.length > 0 && (
-                <FundChannelForm
+          <NavBar darkMode={darkMode} />
+
+          <Routes>
+            <Route
+              path="/routing"
+              element={
+                <RoutingPage
+                  lnc={lnc}
+                  darkMode={darkMode}
+                  nodeChannels={nodeChannels}
+                />
+              }
+            />
+            <Route
+              path="/taproot-assets"
+              element={
+                <TaprootAssetsPage
+                  // Mint
+                  mintAssetName={mintAssetName} setMintAssetName={setMintAssetName}
+                  mintAssetAmount={mintAssetAmount} setMintAssetAmount={setMintAssetAmount}
+                  mintAssetType={mintAssetType}
+                  handleAssetTypeChange={handleAssetTypeChange}
+                  mintAssetFilePreview={mintAssetFilePreview}
+                  handleFileChange={handleFileChange}
+                  mintAssetMeta={mintAssetMeta} setMintAssetMeta={setMintAssetMeta}
+                  isMinting={isMinting}
+                  mintAssetError={mintAssetError}
+                  mintAssetSuccess={mintAssetSuccess}
+                  handleMintAssetSubmit={handleMintAssetSubmit}
+                  // Batch
+                  batchAssets={batchAssets}
+                  handleCancelBatch={handleCancelBatch}
+                  handleFinalizeBatch={handleFinalizeBatch}
+                  // Assets & Channels
+                  assets={assets}
+                  channelAssets={channelAssets}
+                  // Fund Channel
                   assetAmount={assetAmount} setAssetAmount={setAssetAmount}
                   assetId={assetId} setAssetId={setAssetId}
-                  assets={assets}
-                  peers={nodePeers}
-                  onShowPeers={() => setIsPeersModalOpen(true)}
                   peerPubkey={peerPubkey} setPeerPubkey={setPeerPubkey}
                   feeRateSatPerVbyte={feeRateSatPerVbyte} setFeeRateSatPerVbyte={setFeeRateSatPerVbyte}
                   isFunding={isFunding}
                   fundChannelError={fundChannelError}
                   fundChannelSuccess={fundChannelSuccess}
+                  handleFundChannelSubmit={handleFundChannelSubmit}
+                  nodePeers={nodePeers}
+                  onShowPeers={() => setIsPeersModalOpen(true)}
+                  // Tap Invoice
+                  invoiceChannelAssets={invoiceChannelAssets}
+                  tapAssetChannels={tapAssetChannels}
+                  tapAssetChannelsError={tapAssetChannelsError}
+                  isLoadingTapAssetChannels={isLoadingTapAssetChannels}
+                  listTapAssetChannels={listTapAssetChannels}
+                  selectedInvoiceAssetId={selectedInvoiceAssetId}
+                  setSelectedInvoiceAssetId={setSelectedInvoiceAssetId}
+                  selectedInvoicePeerPubkey={selectedInvoicePeerPubkey}
+                  setSelectedInvoicePeerPubkey={setSelectedInvoicePeerPubkey}
+                  tapInvoiceAmount={tapInvoiceAmount}
+                  setTapInvoiceAmount={setTapInvoiceAmount}
+                  isCreatingTapInvoice={isCreatingTapInvoice}
+                  tapInvoiceError={tapInvoiceError}
+                  tapInvoiceSuccess={tapInvoiceSuccess}
+                  latestTapInvoice={latestTapInvoice}
+                  handleCreateTapAssetInvoice={handleCreateTapAssetInvoice}
+                  // Utils
                   darkMode={darkMode}
-                  onSubmit={handleFundChannelSubmit}
+                  extractPeerPubkeyHex={extractPeerPubkeyHex}
+                  bytesLikeToHex={bytesLikeToHex}
                 />
-              )}
-              <section>
-                <h2 className="text-2xl font-bold mb-5" style={{ color: 'var(--text-primary)' }}>
-                  Create Taproot Asset Invoice
-                </h2>
-                <form
-                  onSubmit={handleCreateTapAssetInvoice}
-                  className="rounded-xl p-6 transition-colors duration-300"
-                  style={{
-                    backgroundColor: 'var(--form-bg)',
-                    border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'}`,
-                    boxShadow: darkMode ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.05)',
-                  }}
-                >
-                  <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
-                    Uses <code>lnc.tapd.tapChannels.addInvoice</code> so the invoice is payable in the selected Taproot Asset.
-                  </p>
+              }
+            />
+            <Route path="*" element={<Navigate to="/routing" replace />} />
+          </Routes>
 
-                  <div className="mb-4">
-                    <label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }} htmlFor="tapInvoiceAssetId">
-                      Asset
-                    </label>
-                    <select
-                      id="tapInvoiceAssetId"
-                      className="w-full px-3 py-2 rounded-md transition-colors duration-200"
-                      style={{
-                        backgroundColor: 'var(--input-bg)',
-                        color: 'var(--text-primary)',
-                        border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
-                      }}
-                      value={selectedInvoiceAssetId}
-                      onChange={(e) => setSelectedInvoiceAssetId(e.target.value)}
-                      required
-                      disabled={isCreatingTapInvoice || !invoiceChannelAssets.length}
-                    >
-                      <option value="" disabled>Select an asset from channels</option>
-                      {invoiceChannelAssets.map((asset) => {
-                        const currentAssetIdHex = asset.assetIdHex;
-                        return (
-                          <option key={currentAssetIdHex} value={currentAssetIdHex}>
-                            {`${asset.name || 'Unnamed'} (in channels: ${asset.totalInChannels || '0'})`}
-                          </option>
-                        );
-                      })}
-                    </select>
-                    {!invoiceChannelAssets.length && (
-                      <p className="text-xs mt-2" style={{ color: 'var(--error-text)' }}>
-                        No Taproot Assets found in channels. Open/fund a Taproot Asset channel first.
-                      </p>
-                    )}
-                  </div>
+          <PeersModal
+            isOpen={isPeersModalOpen}
+            onClose={() => setIsPeersModalOpen(false)}
+            peers={nodePeers}
+            darkMode={darkMode}
+            lnc={lnc}
+            onPeerAdded={listPeers}
+          />
 
-                  <div className="mb-4">
-                    <label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }} htmlFor="tapInvoiceAmount">
-                      Asset Amount
-                    </label>
-                    <input
-                      id="tapInvoiceAmount"
-                      className="w-full px-3 py-2 rounded-md transition-colors duration-200"
-                      style={{
-                        backgroundColor: 'var(--input-bg)',
-                        color: 'var(--text-primary)',
-                        border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
-                      }}
-                      type="number"
-                      min="1"
-                      placeholder="e.g. 10"
-                      value={tapInvoiceAmount}
-                      onChange={(e) => setTapInvoiceAmount(e.target.value)}
-                      required
-                      disabled={isCreatingTapInvoice}
-                    />
-                  </div>
-
-                  <div className="mb-5">
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <label className="block text-sm font-bold" style={{ color: 'var(--text-primary)' }} htmlFor="tapInvoicePeerPubkey">
-                        Channel Peer (optional)
-                      </label>
-                      <button
-                        type="button"
-                        onClick={listTapAssetChannels}
-                        className="text-xs px-2 py-1 rounded border"
-                        style={{
-                          borderColor: 'var(--border-color)',
-                          color: 'var(--text-secondary)',
-                          backgroundColor: 'transparent',
-                        }}
-                        disabled={isLoadingTapAssetChannels || isCreatingTapInvoice}
-                      >
-                        {isLoadingTapAssetChannels ? 'Refreshing...' : 'Refresh channels'}
-                      </button>
-                    </div>
-                    <select
-                      id="tapInvoicePeerPubkey"
-                      className="w-full px-3 py-2 rounded-md transition-colors duration-200"
-                      style={{
-                        backgroundColor: 'var(--input-bg)',
-                        color: 'var(--text-primary)',
-                        border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
-                      }}
-                      value={selectedInvoicePeerPubkey}
-                      onChange={(e) => setSelectedInvoicePeerPubkey(e.target.value)}
-                      disabled={isCreatingTapInvoice}
-                    >
-                      <option value="">Auto RFQ (all suitable peers)</option>
-                      {[...new Set(tapAssetChannels.map((channel) => extractPeerPubkeyHex(channel)).filter(Boolean))].map((peerHex) => (
-                        <option key={peerHex} value={peerHex}>{peerHex}</option>
-                      ))}
-                    </select>
-                    {tapAssetChannelsError && (
-                      <p className="text-xs mt-2" style={{ color: 'var(--error-text)' }}>
-                        {tapAssetChannelsError}
-                      </p>
-                    )}
-                    {tapAssetChannels.length > 0 && (
-                      <div className="mt-3 max-h-32 overflow-y-auto pr-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                        {tapAssetChannels.map((channel, idx) => (
-                          <div
-                            key={`${extractPeerPubkeyHex(channel)}-${idx}`}
-                            className="py-1 border-b"
-                            style={{ borderColor: 'var(--border-color)' }}
-                          >
-                            <span className="font-medium" style={{ color: 'var(--text-primary)' }}>Peer:</span>{' '}
-                            {extractPeerPubkeyHex(channel) || 'unknown'}{' '}
-                            {channel?.assetId || channel?.asset_id ? (
-                              <>
-                                <span className="font-medium" style={{ color: 'var(--text-primary)' }}>Asset:</span>{' '}
-                                {bytesLikeToHex(channel?.assetId || channel?.asset_id)}
-                              </>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <button
-                    className="w-full py-2 px-4 rounded-md font-medium text-white transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]"
-                    style={{
-                      background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
-                      boxShadow: darkMode ? '0 4px 12px rgba(59, 130, 246, 0.3)' : '0 4px 12px rgba(59, 130, 246, 0.2)',
-                      opacity: isCreatingTapInvoice ? '0.7' : '1',
-                      cursor: isCreatingTapInvoice ? 'not-allowed' : 'pointer',
-                    }}
-                    type="submit"
-                    disabled={isCreatingTapInvoice || !selectedInvoiceAssetId}
-                  >
-                    {isCreatingTapInvoice ? 'Creating Tap Asset Invoice...' : 'Create Tap Asset Invoice'}
-                  </button>
-
-                  <FeedbackMessage type="error" message={tapInvoiceError} darkMode={darkMode} />
-                  <FeedbackMessage type="success" message={tapInvoiceSuccess} darkMode={darkMode} />
-
-                  {latestTapInvoice?.paymentRequest && (
-                    <div
-                      className="mt-4 p-3 rounded-md text-sm break-all"
-                      style={{
-                        backgroundColor: 'var(--input-bg)',
-                        border: `1px solid ${darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
-                      }}
-                    >
-                      <p className="font-semibold mb-1">Payment Request</p>
-                      <p style={{ fontFamily: 'monospace' }}>{latestTapInvoice.paymentRequest}</p>
-                      {latestTapInvoice.paymentHashHex ? (
-                        <>
-                          <p className="font-semibold mt-3 mb-1">Payment Hash</p>
-                          <p style={{ fontFamily: 'monospace' }}>{latestTapInvoice.paymentHashHex}</p>
-                        </>
-                      ) : null}
-                    </div>
-                  )}
-                </form>
-              </section>
-            </div>
-          </div>
+          <footer
+            className="px-6 py-4 border-t text-center text-xs"
+            style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+          >
+            <p>Senfina TapVolt Demo</p>
+          </footer>
         </div>
 
-        <footer className="px-6 py-4 border-t text-center text-xs" style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}>
-          <p>Senfina TapVolt Demo</p>
-        </footer>
+        <style jsx global>{`
+          @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } }
+          @keyframes pulse-slow { 0% { opacity: 0.2; } 50% { opacity: 0.3; } 100% { opacity: 0.2; } }
+          .animate-float { animation: float 4s ease-in-out infinite; }
+          .animate-pulse-slow { animation: pulse-slow 3s ease-in-out infinite; }
+          body { background-color: var(--bg-primary); transition: background-color 0.3s ease; }
+          input[type="file"]::file-selector-button {
+            background-color: var(--file-bg);
+            color: var(--file-text);
+            border: 1px solid ${darkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)'};
+          }
+          input[type="file"]::file-selector-button:hover {
+            background-color: var(--file-hover-bg);
+          }
+        `}</style>
       </div>
-
-      <style jsx global>{`
-        @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } }
-        @keyframes pulse-slow { 0% { opacity: 0.2; } 50% { opacity: 0.3; } 100% { opacity: 0.2; } }
-        .animate-float { animation: float 4s ease-in-out infinite; }
-        .animate-pulse-slow { animation: pulse-slow 3s ease-in-out infinite; }
-        body { background-color: var(--bg-primary); transition: background-color 0.3s ease; }
-        input[type="file"]::file-selector-button {
-          background-color: var(--file-bg);
-          color: var(--file-text);
-          border: 1px solid ${darkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)'};
-        }
-        input[type="file"]::file-selector-button:hover {
-          background-color: var(--file-hover-bg);
-        }
-      `}</style>
-    </div>
+    </BrowserRouter>
   );
 }
 
