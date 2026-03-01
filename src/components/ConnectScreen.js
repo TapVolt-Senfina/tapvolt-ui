@@ -68,11 +68,10 @@ const ConnectScreen = ({
           boxShadow: darkMode
             ? '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2)'
             : '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-          border: `1px solid ${
-            darkMode
+          border: `1px solid ${darkMode
               ? 'rgba(255, 255, 255, 0.1)'
               : 'rgba(0, 0, 0, 0.05)'
-          }`
+            }`
         }}
       >
         <h2
@@ -83,7 +82,7 @@ const ConnectScreen = ({
         </h2>
 
         <form onSubmit={isPaired ? handleLogin : handleConnect}>
-          
+
           {/* Pairing phrase only shown first time */}
           {!isPaired && (
             <div className="mb-5">
@@ -100,11 +99,10 @@ const ConnectScreen = ({
                 style={{
                   backgroundColor: 'var(--input-bg)',
                   color: 'var(--text-primary)',
-                  border: `1px solid ${
-                    darkMode
+                  border: `1px solid ${darkMode
                       ? 'rgba(255, 255, 255, 0.1)'
                       : 'rgba(0, 0, 0, 0.1)'
-                  }`,
+                    }`,
                   boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.05)'
                 }}
                 placeholder="Enter pairing phrase..."
@@ -133,11 +131,10 @@ const ConnectScreen = ({
               style={{
                 backgroundColor: 'var(--input-bg)',
                 color: 'var(--text-primary)',
-                border: `1px solid ${
-                  darkMode
+                border: `1px solid ${darkMode
                     ? 'rgba(255, 255, 255, 0.1)'
                     : 'rgba(0, 0, 0, 0.1)'
-                }`,
+                  }`,
                 boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.05)'
               }}
               placeholder="Enter password..."
@@ -193,13 +190,6 @@ const ConnectScreen = ({
             </a>
           </p>
         </div>
-      </div>
-
-      <div
-        className="absolute bottom-6 text-center text-xs"
-        style={{ color: 'var(--text-secondary)' }}
-      >
-        © {new Date().getFullYear()} Senfina TapVolt Demo
       </div>
     </div>
   );

@@ -15,8 +15,8 @@ import DarkModeToggle from './components/DarkModeToggle';
 import NavBar from './components/NavBar';
 import PeersModal from './components/PeersModal';
 
-// Pages
 import RoutingPage from './pages/RoutingPage';
+import ChannelsPage from './pages/ChannelsPage';
 import TaprootAssetsPage from './pages/TaprootAssetsPage';
 
 function App() {
@@ -906,6 +906,16 @@ function App() {
               path="/routing"
               element={
                 <RoutingPage
+                  lnc={lnc}
+                  darkMode={darkMode}
+                  nodeChannels={nodeChannels}
+                />
+              }
+            />
+            <Route
+              path="/channels"
+              element={
+                <ChannelsPage
                   lnc={lnc}
                   darkMode={darkMode}
                   nodeChannels={nodeChannels}
