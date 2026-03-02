@@ -29,7 +29,10 @@ const SimpleChart = ({
     const chartH = height - PAD_TOP - PAD_BOT;
 
     const svgRef = useRef(null);
-    const [tooltip, setTooltip] = useState(null); // { x, y, label, value }
+    const wrapRef = useRef(null);
+
+    // tooltip: { svgX, svgY, label, value, domX, domY }
+    const [tooltip, setTooltip] = useState(null);
 
     const { points, maxVal } = useMemo(() => {
         if (!data.length) return { points: [], maxVal: 0 };
@@ -42,7 +45,7 @@ const SimpleChart = ({
         return { points, maxVal };
     }, [data, chartW, chartH]);
 
-    // Given a mouse SVG-space X, find the closest data point
+    // Given an SVG-space X, find the closest data point index
     const findNearest = useCallback((svgX) => {
         if (!points.length) return null;
         let best = points[0];
@@ -56,17 +59,40 @@ const SimpleChart = ({
 
     const handleMouseMove = useCallback((e) => {
         const svg = svgRef.current;
-        if (!svg || !points.length) return;
-        const rect = svg.getBoundingClientRect();
-        // Map client X to SVG coordinate space
-        const svgX = ((e.clientX - rect.left) / rect.width) * WIDTH;
-        const p = findNearest(svgX);
-        if (!p) return;
-        // Tooltip anchor in % of rendered element
-        const pctX = (p.x / WIDTH) * 100;
-        const pctY = ((p.y - PAD_TOP) / chartH) * 100;
-        setTooltip({ pctX, pctY, label: p.label, value: p.value, svgY: p.y, svgX: p.x });
-    }, [points, findNearest, chartH]);
+        const wrap = wrapRef.current;
+        if (!svg || !wrap || !points.length) return;
+
+        // Accurate SVG coordinate via getScreenCTM — handles CSS scaling perfectly
+        const pt = svg.createSVGPoint();
+        pt.x = e.clientX;
+        pt.y = e.clientY;
+        const svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+        const nearest = findNearest(svgPt.x);
+        if (!nearest) return;
+
+        // DOM position of the nearest point for the HTML tooltip
+        // Convert the SVG-space point back to DOM pixels
+        const ptBack = svg.createSVGPoint();
+        ptBack.x = nearest.x;
+        ptBack.y = nearest.y;
+        const domPt = ptBack.matrixTransform(svg.getScreenCTM());
+
+        // Position relative to the wrapper div
+        const wrapRect = wrap.getBoundingClientRect();
+        const domX = domPt.x - wrapRect.left;
+        const domY = domPt.y - wrapRect.top;
+
+        setTooltip({
+            svgX: nearest.x,
+            svgY: nearest.y,
+            label: nearest.label,
+            value: nearest.value,
+            domX,
+            domY,
+            wrapW: wrapRect.width,
+        });
+    }, [points, findNearest]);
 
     const handleMouseLeave = useCallback(() => setTooltip(null), []);
 
@@ -103,14 +129,17 @@ const SimpleChart = ({
     const gridColor = darkMode ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)';
     const labelStep = Math.ceil(data.length / 10);
 
-    // Tooltip box — flip left if near right edge
-    const ttLeft = tooltip ? (tooltip.pctX > 70 ? 'auto' : `${tooltip.pctX}%`) : 0;
-    const ttRight = tooltip ? (tooltip.pctX > 70 ? `${100 - tooltip.pctX}%` : 'auto') : 'auto';
-    const ttTop = tooltip ? (tooltip.pctY > 60 ? 'auto' : `${Math.max(0, tooltip.pctY - 10)}%`) : 0;
-    const ttBottom = tooltip ? (tooltip.pctY > 60 ? `${100 - tooltip.pctY + 10}%` : 'auto') : 'auto';
+    // — tooltip placement: flip left if near right edge, flip up if near bottom —
+    const TT_W = 160; // rough tooltip width estimate in px
+    const ttLeft = tooltip
+        ? tooltip.domX + TT_W / 2 > tooltip.wrapW
+            ? tooltip.domX - TT_W       // right-flip
+            : tooltip.domX - TT_W / 2   // centred
+        : 0;
+    const ttTop = tooltip ? tooltip.domY - 44 : 0; // always above the dot
 
     return (
-        <div style={{ width: '100%', position: 'relative' }}>
+        <div style={{ width: '100%', position: 'relative' }} ref={wrapRef}>
             {label && (
                 <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>
                     {label}
@@ -175,7 +204,7 @@ const SimpleChart = ({
                         />
                     ))}
 
-                    {/* Hover crosshair */}
+                    {/* Hover crosshair + highlighted dot */}
                     {tooltip && (
                         <>
                             <line
@@ -185,7 +214,7 @@ const SimpleChart = ({
                             />
                             <circle
                                 cx={tooltip.svgX} cy={tooltip.svgY}
-                                r="5" fill={color} stroke="white" strokeWidth="2"
+                                r="6" fill={color} stroke="white" strokeWidth="2.5"
                             />
                         </>
                     )}
@@ -200,24 +229,21 @@ const SimpleChart = ({
                     )}
                 </svg>
 
-                {/* Floating tooltip */}
+                {/* Floating tooltip — positioned in DOM pixels relative to wrapper */}
                 {tooltip && (
                     <div
                         style={{
                             position: 'absolute',
                             top: ttTop,
-                            bottom: ttBottom,
                             left: ttLeft,
-                            right: ttRight,
-                            transform: 'translateX(-50%)',
                             pointerEvents: 'none',
-                            zIndex: 10,
+                            zIndex: 20,
                             padding: '6px 10px',
                             borderRadius: 8,
                             fontSize: 12,
                             fontWeight: 600,
                             whiteSpace: 'nowrap',
-                            backgroundColor: darkMode ? 'rgba(30,30,30,0.95)' : 'rgba(255,255,255,0.97)',
+                            backgroundColor: darkMode ? 'rgba(20,20,30,0.96)' : 'rgba(255,255,255,0.97)',
                             color: 'var(--text-primary)',
                             boxShadow: darkMode
                                 ? `0 4px 16px rgba(0,0,0,0.5), 0 0 0 1px ${color}55`
