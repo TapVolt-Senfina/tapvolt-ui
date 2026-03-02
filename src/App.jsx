@@ -21,11 +21,10 @@ import TaprootAssetsPage from './pages/TaprootAssetsPage';
 
 function App() {
   // LNC & Node State
-  const [lnc, setLNC] = useState(null);
+  const [lnc, setLncState] = useState(null);
   const [isPaired, setIsPaired] = useState(() => {
     try {
-      const lncInstance = new LNC({});
-      return Boolean(lncInstance?.credentials?.isPaired);
+      return Boolean(new LNC({ namespace: 'tapvolt' })?.credentials?.isPaired);
     } catch (error) {
       console.error('Failed to read LNC pairing state:', error);
       return false;
@@ -379,23 +378,23 @@ function App() {
         throw new Error('Password is required.');
       }
 
-      const lncInstance = new LNC({});
+      const lncInstance = new LNC({ namespace: 'tapvolt' });
       lncInstance.credentials.pairingPhrase = trimmedPairingPhrase;
       await lncInstance.connect();
       // Verify node connectivity before persisting encrypted credentials.
       await lncInstance.lnd.lightning.listChannels();
       lncInstance.credentials.password = trimmedPassword;
 
-      setLNC(lncInstance);
+      setLncState(lncInstance);
       setIsPaired(Boolean(lncInstance?.credentials?.isPaired));
       setPairingPhrase('');
       setPassword('');
     } catch (error) {
       console.error('LNC connection error:', error);
       setConnectionError(error.message || 'Failed to connect. Check phrase/proxy.');
-      setLNC(null);
+      setLncState(null);
       try {
-        setIsPaired(Boolean(new LNC({})?.credentials?.isPaired));
+        setIsPaired(Boolean(new LNC({ namespace: 'tapvolt' })?.credentials?.isPaired));
       } catch (_refreshError) {
         setIsPaired(false);
       }
@@ -415,7 +414,7 @@ function App() {
         throw new Error('Password is required.');
       }
 
-      const lncInstance = new LNC({});
+      const lncInstance = new LNC({ namespace: 'tapvolt' });
       lncInstance.credentials.password = trimmedPassword;
       if (!lncInstance?.credentials?.isPaired) {
         throw new Error('No paired credentials found. Connect your node first.');
@@ -423,15 +422,15 @@ function App() {
 
       await lncInstance.connect();
 
-      setLNC(lncInstance);
+      setLncState(lncInstance);
       setIsPaired(Boolean(lncInstance?.credentials?.isPaired));
       setPassword('');
     } catch (error) {
       console.error('LNC login error:', error);
       setConnectionError(error.message || 'Failed to login. Check password.');
-      setLNC(null);
+      setLncState(null);
       try {
-        setIsPaired(Boolean(new LNC({})?.credentials?.isPaired));
+        setIsPaired(Boolean(new LNC({ namespace: 'tapvolt' })?.credentials?.isPaired));
       } catch (_refreshError) {
         setIsPaired(false);
       }

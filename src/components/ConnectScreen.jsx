@@ -69,8 +69,8 @@ const ConnectScreen = ({
             ? '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2)'
             : '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
           border: `1px solid ${darkMode
-              ? 'rgba(255, 255, 255, 0.1)'
-              : 'rgba(0, 0, 0, 0.05)'
+            ? 'rgba(255, 255, 255, 0.1)'
+            : 'rgba(0, 0, 0, 0.05)'
             }`
         }}
       >
@@ -100,8 +100,8 @@ const ConnectScreen = ({
                   backgroundColor: 'var(--input-bg)',
                   color: 'var(--text-primary)',
                   border: `1px solid ${darkMode
-                      ? 'rgba(255, 255, 255, 0.1)'
-                      : 'rgba(0, 0, 0, 0.1)'
+                    ? 'rgba(255, 255, 255, 0.1)'
+                    : 'rgba(0, 0, 0, 0.1)'
                     }`,
                   boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.05)'
                 }}
@@ -126,14 +126,16 @@ const ConnectScreen = ({
             </label>
             <input
               id="password"
+              name="password"
               type="password"
+              autoComplete="current-password"
               className="w-full px-4 py-3 rounded-lg transition-colors duration-200"
               style={{
                 backgroundColor: 'var(--input-bg)',
                 color: 'var(--text-primary)',
                 border: `1px solid ${darkMode
-                    ? 'rgba(255, 255, 255, 0.1)'
-                    : 'rgba(0, 0, 0, 0.1)'
+                  ? 'rgba(255, 255, 255, 0.1)'
+                  : 'rgba(0, 0, 0, 0.1)'
                   }`,
                 boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.05)'
               }}
