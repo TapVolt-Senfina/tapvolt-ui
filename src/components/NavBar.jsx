@@ -68,6 +68,31 @@ const NavBar = ({ darkMode }) => {
       </NavLink>
 
       <NavLink
+        to="/htlcs"
+        className={({ isActive }) =>
+          isActive
+            ? `${activeCls} text-white`
+            : `${activeCls} hover:opacity-80`
+        }
+        style={({ isActive }) =>
+          isActive
+            ? {
+              background: 'linear-gradient(135deg, #ec4899, #be185d)',
+              color: '#ffffff',
+              boxShadow: darkMode
+                ? '0 4px 14px rgba(236,72,153,0.4)'
+                : '0 4px 14px rgba(190,24,93,0.25)',
+            }
+            : { color: 'var(--text-secondary)', background: 'transparent' }
+        }
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+        </svg>
+        HTLCs
+      </NavLink>
+
+      <NavLink
         to="/channels"
         className={({ isActive }) =>
           isActive

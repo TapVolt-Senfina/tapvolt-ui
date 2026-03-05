@@ -13,6 +13,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-router-dom": "^7.13.1",
+    "recharts": "^3.7.0",
     "tailwindcss": "^4.2.1",
     "web-vitals": "5.1.0"
   },

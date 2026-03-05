@@ -678,65 +678,6 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
                         </div>
                     )}
 
-                    {/* On-chain channel transactions detail */}
-                    {(onchainTxs.opens.length > 0 || onchainTxs.closes.length > 0) && (
-                        <div className="rounded-xl overflow-hidden transition-colors duration-300" style={cardStyle}>
-                            <div className="p-4">
-                                <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>On-chain Channel Fees</h3>
-                                <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>Channel open and close transactions in the selected period</p>
-                            </div>
-                            <div style={{ overflowX: 'auto' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                    <thead>
-                                        <tr>{['Type', 'Txid', 'Block', 'Amount (sats)', 'Fees Paid (sats)', 'Time'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
-                                    </thead>
-                                    <tbody>
-                                        {[
-                                            ...onchainTxs.opens.map((tx) => ({ ...tx, _type: 'Open' })),
-                                            ...onchainTxs.closes.map((tx) => ({ ...tx, _type: 'Close' })),
-                                        ]
-                                            // Always newest first
-                                            .sort((a, b) => Number(b.timeStamp || b.timestamp || 0) - Number(a.timeStamp || a.timestamp || 0))
-                                            .map((tx, i) => {
-                                                const txid = tx._txid || tx.txHash || tx.tx_hash || '—';
-                                                // For opens: miner fee from totalFees (outgoing tx)
-                                                // For closes: pre-computed from localBalance - settledBalance
-                                                const fees = Number(tx._feeSats || 0);
-                                                const amt = Number(tx.amount || 0);
-                                                const ts = Number(tx.timeStamp || tx.timestamp || 0);
-                                                const date = ts ? new Date(ts * 1000).toLocaleString() : '—';
-                                                const block = tx._blockHeight || tx.blockHeight || tx.block_height || '—';
-                                                const isOpen = tx._type === 'Open';
-                                                return (
-                                                    <tr key={i} style={{ backgroundColor: i % 2 === 0 ? 'transparent' : darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)' }}>
-                                                        <td style={{ ...tdStyle, fontFamily: 'inherit' }}>
-                                                            <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{
-                                                                background: isOpen ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                                                                color: isOpen ? '#10b981' : '#ef4444',
-                                                            }}>{tx._type}</span>
-                                                            {tx._closeType ? (
-                                                                <span className="ml-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                                                                    {String(tx._closeType).replace(/_/g, ' ').toLowerCase()}
-                                                                </span>
-                                                            ) : null}
-                                                        </td>
-                                                        <td style={{ ...tdStyle, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' }}
-                                                            title={txid}>{txid && txid !== '—' ? `${txid.slice(0, 8)}…${txid.slice(-6)}` : '—'}</td>
-                                                        <td style={tdStyle}>{block}</td>
-                                                        <td style={tdStyle}>{fmtSats(amt)}</td>
-                                                        <td style={{ ...tdStyle, color: fees > 0 ? '#ef4444' : 'var(--text-secondary)', fontWeight: fees > 0 ? 700 : 400 }}>
-                                                            {fees > 0 ? fmtSats(fees) : '—'}
-                                                        </td>
-                                                        <td style={{ ...tdStyle, fontFamily: 'inherit', fontSize: 11 }}>{date}</td>
-                                                    </tr>
-                                                );
-                                            })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    )}
-
                     {/* All Forwards Table */}
                     <div className="rounded-xl overflow-hidden transition-colors duration-300" style={cardStyle}>
                         <div className="p-4 flex items-center justify-between flex-wrap gap-2">

@@ -18,6 +18,7 @@ import PeersModal from './components/PeersModal';
 import RoutingPage from './pages/RoutingPage';
 import ChannelsPage from './pages/ChannelsPage';
 import TaprootAssetsPage from './pages/TaprootAssetsPage';
+import HtlcsPage from './pages/HtlcsPage';
 
 function App() {
   // LNC & Node State
@@ -912,26 +913,9 @@ function App() {
           <NavBar darkMode={darkMode} />
 
           <Routes>
-            <Route
-              path="/routing"
-              element={
-                <RoutingPage
-                  lnc={lnc}
-                  darkMode={darkMode}
-                  nodeChannels={nodeChannels}
-                />
-              }
-            />
-            <Route
-              path="/channels"
-              element={
-                <ChannelsPage
-                  lnc={lnc}
-                  darkMode={darkMode}
-                  nodeChannels={nodeChannels}
-                />
-              }
-            />
+            <Route path="/routing" element={<RoutingPage lnc={lnc} darkMode={darkMode} nodeChannels={nodeChannels} />} />
+            <Route path="/channels" element={<ChannelsPage lnc={lnc} darkMode={darkMode} nodeChannels={nodeChannels} />} />
+            <Route path="/htlcs" element={<HtlcsPage lnc={lnc} darkMode={darkMode} nodeChannels={nodeChannels} />} />
             <Route
               path="/taproot-assets"
               element={

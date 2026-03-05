@@ -43,7 +43,10 @@ const TaprootAssetsPage = ({
     darkMode, extractPeerPubkeyHex, bytesLikeToHex,
 }) => {
     return (
-        <div className="p-6">
+        <div className="p-6 space-y-8" style={{ maxWidth: 1200, margin: '0 auto' }}>
+            <div className="flex items-center justify-between mb-2">
+                <h2 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Taproot Assets</h2>
+            </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* Left Column */}
                 <div className="space-y-8">
@@ -100,18 +103,13 @@ const TaprootAssetsPage = ({
                     )}
 
                     {/* Create Taproot Asset Invoice */}
-                    <section>
-                        <h2 className="text-2xl font-bold mb-5" style={{ color: 'var(--text-primary)' }}>
-                            Create Taproot Asset Invoice
-                        </h2>
+                    <div className="rounded-xl overflow-hidden transition-colors duration-300" style={{ backgroundColor: 'var(--bg-card)', border: `1px solid ${darkMode ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`, boxShadow: darkMode ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.05)' }}>
+                        <div className="p-4 border-b" style={{ borderColor: darkMode ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)' }}>
+                            <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Create Taproot Asset Invoice</h3>
+                        </div>
                         <form
                             onSubmit={handleCreateTapAssetInvoice}
-                            className="rounded-xl p-6 transition-colors duration-300"
-                            style={{
-                                backgroundColor: 'var(--form-bg)',
-                                border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'}`,
-                                boxShadow: darkMode ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.05)',
-                            }}
+                            className="p-5"
                         >
                             <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
                                 Uses <code>lnc.tapd.tapChannels.addInvoice</code> so the invoice is payable in the selected Taproot Asset.
@@ -272,7 +270,7 @@ const TaprootAssetsPage = ({
                                 </div>
                             )}
                         </form>
-                    </section>
+                    </div>
                 </div>
             </div>
         </div>

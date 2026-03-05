@@ -5,7 +5,7 @@ const FundChannelForm = ({
   assetAmount, setAssetAmount,
   assetId, setAssetId,
   assets,
-  peers,onShowPeers,
+  peers, onShowPeers,
   peerPubkey, setPeerPubkey,
   feeRateSatPerVbyte, setFeeRateSatPerVbyte,
   isFunding,
@@ -15,9 +15,11 @@ const FundChannelForm = ({
   onSubmit
 }) => {
   return (
-    <section>
-      <h2 className="text-2xl font-bold mb-5" style={{ color: 'var(--text-primary)' }}>Fund Asset Channel</h2>
-      <form onSubmit={onSubmit} className="rounded-xl p-6 transition-colors duration-300" style={{ backgroundColor: 'var(--form-bg)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'}`, boxShadow: darkMode ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.05)' }}>
+    <div className="rounded-xl overflow-hidden transition-colors duration-300" style={{ backgroundColor: 'var(--bg-card)', border: `1px solid ${darkMode ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`, boxShadow: darkMode ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.05)' }}>
+      <div className="p-4 border-b" style={{ borderColor: darkMode ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)' }}>
+        <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Fund Asset Channel</h3>
+      </div>
+      <form onSubmit={onSubmit} className="p-5">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="mb-4 sm:mb-0">
             <label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }} htmlFor="assetAmountFund">Asset Amount</label>
@@ -28,15 +30,15 @@ const FundChannelForm = ({
             <input id="feeRateSatPerVbyteFund" className="w-full px-3 py-2 rounded-md transition-colors duration-200" style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }} type="number" placeholder="e.g., 10" value={feeRateSatPerVbyte} onChange={(e) => setFeeRateSatPerVbyte(e.target.value)} required disabled={isFunding} min="1" />
           </div>
         </div>
-        
+
         <div className="mt-4">
           <label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }} htmlFor="assetIdFund">Asset</label>
           <select
             id="assetIdFund"
             className="w-full px-3 py-2 rounded-md transition-colors duration-200"
-            style={{ 
-              backgroundColor: 'var(--input-bg)', 
-              color: 'var(--text-primary)', 
+            style={{
+              backgroundColor: 'var(--input-bg)',
+              color: 'var(--text-primary)',
               border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
               // Ensures the dropdown arrow is visible in dark mode
               backgroundImage: `url('data:image/svg+xml;utf8,<svg fill="${darkMode ? 'white' : 'black'}" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/></svg>')`,
@@ -53,8 +55,8 @@ const FundChannelForm = ({
           >
             <option value="" disabled>Select an owned asset...</option>
             {assets && assets.map((asset) => (
-              <option 
-                key={asset.assetGenesis.assetIdStr || asset.assetGenesis.assetId} 
+              <option
+                key={asset.assetGenesis.assetIdStr || asset.assetGenesis.assetId}
                 value={asset.assetGenesis.assetIdStr}
               >
                 {`${asset.assetGenesis.name} (Amount: ${asset.amount})`}
@@ -62,7 +64,7 @@ const FundChannelForm = ({
             ))}
           </select>
         </div>
-        
+
         <div className="mt-4 mb-6">
           <label className="block text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }} htmlFor="peerPubkeyFund">Peer</label>
           {peers && peers.length > 0 ? (
@@ -106,7 +108,7 @@ const FundChannelForm = ({
         <FeedbackMessage type="error" message={fundChannelError} darkMode={darkMode} />
         <FeedbackMessage type="success" message={fundChannelSuccess} darkMode={darkMode} />
       </form>
-    </section>
+    </div>
   );
 };
 
