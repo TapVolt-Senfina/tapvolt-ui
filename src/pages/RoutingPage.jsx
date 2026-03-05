@@ -302,6 +302,9 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
     const [error, setError] = useState(null);
     const [page, setPage] = useState(0);
     const [topRoutesTab, setTopRoutesTab] = useState('table');
+    const [topRoutesSort, setTopRoutesSort] = useState('fee'); // 'fee', 'volume', 'count'
+    const [allForwardsTab, setAllForwardsTab] = useState('table');
+    const [allForwardsMetric, setAllForwardsMetric] = useState('volume'); // 'fee', 'volume', 'count'
 
     // ── fetch ─────────────────────────────────────────────────────────────────
     const fetchAll = useCallback(async (periodKey) => {
@@ -519,8 +522,10 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
             const r = map.get(key);
             r.count++; r.volume += f.amtIn; r.fee += f.fee;
         });
-        return Array.from(map.values()).sort((a, b) => b.fee - a.fee).slice(0, 20);
-    }, [normForwards]);
+        const arr = Array.from(map.values());
+        arr.sort((a, b) => b[topRoutesSort] - a[topRoutesSort]);
+        return arr.slice(0, 20); // Top 20 based on sort
+    }, [normForwards, topRoutesSort]);
 
     const chanLabel = (chanId) => {
         const entry = chanAliasMap[String(chanId)];
@@ -545,16 +550,70 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
         const nodeMap = new Map();
         nodes.forEach((n, idx) => nodeMap.set(n.id, idx));
 
-        const links = topRoutes.map(r => ({
-            source: nodeMap.get(`${r.chanIdIn}_in`),
-            target: nodeMap.get(`${r.chanIdOut}_out`),
-            value: r.volume,
-            fee: r.fee
-        }));
+        const links = topRoutes.map(r => {
+            let val = r.volume;
+            if (topRoutesSort === 'fee') val = r.fee;
+            if (topRoutesSort === 'count') val = r.count;
+            return {
+                source: nodeMap.get(`${r.chanIdIn}_in`),
+                target: nodeMap.get(`${r.chanIdOut}_out`),
+                value: val || 0.0001, // Recharts needs > 0
+                fee: r.fee,
+                volume: r.volume,
+                count: r.count,
+                metric: topRoutesSort
+            };
+        });
 
         if (nodes.length === 0 || links.length === 0) return null;
         return { nodes, links };
-    }, [topRoutes, chanAliasMap]);
+    }, [topRoutes, chanAliasMap, topRoutesSort]);
+
+    const allForwardsSankeyData = useMemo(() => {
+        if (!normForwards || normForwards.length === 0) return null;
+
+        const map = new Map();
+        normForwards.forEach((f) => {
+            const key = `${f.chanIdIn}→${f.chanIdOut}`;
+            if (!map.has(key)) map.set(key, { chanIdIn: f.chanIdIn, chanIdOut: f.chanIdOut, count: 0, volume: 0, fee: 0 });
+            const r = map.get(key);
+            r.count++; r.volume += f.amtIn; r.fee += f.fee;
+        });
+        const allRoutes = Array.from(map.values());
+
+        const uniqueChanIds = new Set();
+        allRoutes.forEach(r => {
+            uniqueChanIds.add(`${r.chanIdIn}_in`);
+            uniqueChanIds.add(`${r.chanIdOut}_out`);
+        });
+
+        // Create separated nodes for incoming and outgoing to prevent cyclic graphs
+        const nodes = Array.from(uniqueChanIds).map(id => ({
+            name: chanLabel(id.replace('_in', '').replace('_out', '')),
+            id
+        }));
+
+        const nodeMap = new Map();
+        nodes.forEach((n, idx) => nodeMap.set(n.id, idx));
+
+        const links = allRoutes.map(r => {
+            let val = r.volume;
+            if (allForwardsMetric === 'fee') val = r.fee;
+            if (allForwardsMetric === 'count') val = r.count;
+            return {
+                source: nodeMap.get(`${r.chanIdIn}_in`),
+                target: nodeMap.get(`${r.chanIdOut}_out`),
+                value: val || 0.0001, // Recharts needs > 0
+                fee: r.fee,
+                volume: r.volume,
+                count: r.count,
+                metric: allForwardsMetric
+            };
+        });
+
+        if (nodes.length === 0 || links.length === 0) return null;
+        return { nodes, links };
+    }, [normForwards, chanAliasMap, allForwardsMetric]);
 
     // ── pagination ────────────────────────────────────────────────────────────
     const totalPages = Math.ceil(normForwards.length / ROWS_PER_PAGE);
@@ -696,9 +755,25 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
                                         Sankey Visualization
                                     </button>
                                 </div>
-                                <span className="text-xs px-2 py-1 rounded-full mr-4" style={{ backgroundColor: darkMode ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.1)', color: '#6366f1' }}>
-                                    {topRoutes.length} route{topRoutes.length !== 1 ? 's' : ''}
-                                </span>
+                                <div className="flex items-center gap-4 mr-4 mb-2 mt-2">
+                                    <select
+                                        value={topRoutesSort}
+                                        onChange={(e) => setTopRoutesSort(e.target.value)}
+                                        className="text-xs px-3 py-1.5 rounded-lg border outline-none focus:ring-1 focus:ring-indigo-500"
+                                        style={{
+                                            backgroundColor: darkMode ? '#1f2937' : '#f9fafb',
+                                            borderColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                                            color: 'var(--text-primary)'
+                                        }}
+                                    >
+                                        <option value="fee">Sort by Fees</option>
+                                        <option value="volume">Sort by Volume</option>
+                                        <option value="count">Sort by Total Forwards</option>
+                                    </select>
+                                    <span className="text-xs px-2 py-1 flex-shrink-0 rounded-full hidden sm:inline-block" style={{ backgroundColor: darkMode ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.1)', color: '#6366f1' }}>
+                                        {topRoutes.length} route{topRoutes.length !== 1 ? 's' : ''}
+                                    </span>
+                                </div>
                             </div>
 
                             <div className="p-0">
@@ -749,12 +824,27 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
 
                     {/* All Forwards Table */}
                     <div className="rounded-xl overflow-hidden transition-colors duration-300" style={cardStyle}>
-                        <div className="p-4 flex items-center justify-between flex-wrap gap-2">
-                            <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>All Forwards</h3>
-                            <div className="flex items-center gap-3">
-                                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{normForwards.length} events</span>
-                                {totalPages > 1 && (
-                                    <div className="flex items-center gap-1">
+                        <div className="p-0 border-b flex items-center justify-between flex-wrap" style={{ borderColor: darkMode ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)' }}>
+                            <div className="flex items-center gap-4 px-4 pt-4">
+                                <button
+                                    onClick={() => setAllForwardsTab('table')}
+                                    className={`pb-3 font-semibold text-sm transition-colors border-b-2 ${allForwardsTab === 'table' ? 'border-indigo-500 text-indigo-500' : 'border-transparent text-gray-400 hover:text-gray-300'}`}
+                                >
+                                    All Forwards Table
+                                </button>
+                                <button
+                                    onClick={() => setAllForwardsTab('sankey')}
+                                    className={`pb-3 font-semibold text-sm transition-colors border-b-2 ${allForwardsTab === 'sankey' ? 'border-indigo-500 text-indigo-500' : 'border-transparent text-gray-400 hover:text-gray-300'}`}
+                                >
+                                    Sankey Visualization
+                                </button>
+                            </div>
+                            <div className="flex items-center gap-3 mr-4 mb-2 mt-2">
+                                <span className="text-xs px-2 py-1 flex-shrink-0 rounded-full hidden sm:inline-block" style={{ backgroundColor: darkMode ? 'rgba(16,185,129,0.2)' : 'rgba(16,185,129,0.1)', color: '#10b981' }}>
+                                    {normForwards.length} event{normForwards.length !== 1 ? 's' : ''}
+                                </span>
+                                {allForwardsTab === 'table' && totalPages > 1 && (
+                                    <div className="flex items-center gap-1 flex-shrink-0">
                                         <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}
                                             style={{ padding: '3px 10px', borderRadius: 6, fontSize: 12, border: `1px solid ${darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`, background: 'transparent', color: 'var(--text-secondary)', cursor: page === 0 ? 'not-allowed' : 'pointer', opacity: page === 0 ? 0.4 : 1 }}>‹</button>
                                         <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{page + 1}/{totalPages}</span>
@@ -762,36 +852,78 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
                                             style={{ padding: '3px 10px', borderRadius: 6, fontSize: 12, border: `1px solid ${darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`, background: 'transparent', color: 'var(--text-secondary)', cursor: page >= totalPages - 1 ? 'not-allowed' : 'pointer', opacity: page >= totalPages - 1 ? 0.4 : 1 }}>›</button>
                                     </div>
                                 )}
+                                {allForwardsTab === 'sankey' && (
+                                    <select
+                                        value={allForwardsMetric}
+                                        onChange={(e) => setAllForwardsMetric(e.target.value)}
+                                        className="text-xs px-3 py-1.5 rounded-lg border outline-none focus:ring-1 focus:ring-indigo-500"
+                                        style={{
+                                            backgroundColor: darkMode ? '#1f2937' : '#f9fafb',
+                                            borderColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                                            color: 'var(--text-primary)'
+                                        }}
+                                    >
+                                        <option value="fee">Chart by Fees</option>
+                                        <option value="volume">Chart by Volume</option>
+                                        <option value="count">Chart by Total Forwards</option>
+                                    </select>
+                                )}
                             </div>
                         </div>
-                        {normForwards.length === 0 ? (
-                            <p className="px-4 pb-6 text-sm" style={{ color: 'var(--text-secondary)' }}>No forwarding events found in the selected period.</p>
-                        ) : (
-                            <div style={{ overflowX: 'auto' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                    <thead>
-                                        <tr>{['Time', 'In Channel', 'Out Channel', 'Amt In (sats)', 'Amt Out (sats)', 'Amt In (msat)', 'Fee (sats)', 'Fee (msat)'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
-                                    </thead>
-                                    <tbody>
-                                        {pageRows.map((f, i) => {
-                                            const date = f.timestamp ? new Date(f.timestamp * 1000).toLocaleString() : '—';
-                                            return (
-                                                <tr key={i} style={{ backgroundColor: i % 2 === 0 ? 'transparent' : darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)' }}>
-                                                    <td style={{ ...tdStyle, fontFamily: 'inherit', fontSize: 11 }}>{date}</td>
-                                                    <td style={{ ...tdStyle, color: '#6366f1' }} title={f.chanIdIn}>{chanLabel(f.chanIdIn)}</td>
-                                                    <td style={{ ...tdStyle, color: '#10b981' }} title={f.chanIdOut}>{chanLabel(f.chanIdOut)}</td>
-                                                    <td style={tdStyle}>{f.amtIn.toLocaleString()}</td>
-                                                    <td style={tdStyle}>{f.amtOut.toLocaleString()}</td>
-                                                    <td style={{ ...tdStyle, color: 'var(--text-secondary)' }}>{fmtMsat(f.amtInMsat)}</td>
-                                                    <td style={{ ...tdStyle, color: '#f59e0b', fontWeight: 700 }}>{f.fee.toLocaleString()}</td>
-                                                    <td style={{ ...tdStyle, color: 'var(--text-secondary)' }}>{f.feeMsat.toLocaleString()}</td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
+                        <div className="p-0">
+                            {allForwardsTab === 'table' ? (
+                                <>
+                                    {normForwards.length === 0 ? (
+                                        <p className="p-6 text-sm flex items-center justify-center h-full w-full" style={{ color: 'var(--text-secondary)' }}>No forwarding events found in the selected period.</p>
+                                    ) : (
+                                        <div style={{ overflowX: 'auto' }}>
+                                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                                <thead>
+                                                    <tr>{['Time', 'In Channel', 'Out Channel', 'Amt In (sats)', 'Amt Out (sats)', 'Amt In (msat)', 'Fee (sats)', 'Fee (msat)'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                                                </thead>
+                                                <tbody>
+                                                    {pageRows.map((f, i) => {
+                                                        const date = f.timestamp ? new Date(f.timestamp * 1000).toLocaleString() : '—';
+                                                        return (
+                                                            <tr key={i} style={{ backgroundColor: i % 2 === 0 ? 'transparent' : darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)' }}>
+                                                                <td style={{ ...tdStyle, fontFamily: 'inherit', fontSize: 11 }}>{date}</td>
+                                                                <td style={{ ...tdStyle, color: '#6366f1' }} title={f.chanIdIn}>{chanLabel(f.chanIdIn)}</td>
+                                                                <td style={{ ...tdStyle, color: '#10b981' }} title={f.chanIdOut}>{chanLabel(f.chanIdOut)}</td>
+                                                                <td style={tdStyle}>{f.amtIn.toLocaleString()}</td>
+                                                                <td style={tdStyle}>{f.amtOut.toLocaleString()}</td>
+                                                                <td style={{ ...tdStyle, color: 'var(--text-secondary)' }}>{fmtMsat(f.amtInMsat)}</td>
+                                                                <td style={{ ...tdStyle, color: '#f59e0b', fontWeight: 700 }}>{f.fee.toLocaleString()}</td>
+                                                                <td style={{ ...tdStyle, color: 'var(--text-secondary)' }}>{f.feeMsat.toLocaleString()}</td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <div style={{ width: '100%', height: Math.max(500, (allForwardsSankeyData?.nodes?.length || 0) * 45), minHeight: 500, padding: 24, paddingRight: 48, paddingLeft: 48 }}>
+                                    {!allForwardsSankeyData ? (
+                                        <div className="w-full h-full flex items-center justify-center text-sm" style={{ color: 'var(--text-secondary)' }}>
+                                            No routes available to build visualization.
+                                        </div>
+                                    ) : (
+                                        <ResponsiveContainer width="100%" height="100%" minHeight={500}>
+                                            <Sankey
+                                                data={allForwardsSankeyData}
+                                                nodePadding={50}
+                                                margin={{ left: 20, right: 20, top: 40, bottom: 40 }}
+                                                node={(props) => <CustomNode {...props} darkMode={darkMode} />}
+                                                link={{ stroke: darkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)' }}
+                                            >
+                                                <Tooltip content={<CustomTooltip darkMode={darkMode} />} />
+                                            </Sankey>
+                                        </ResponsiveContainer>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </>
             )}
@@ -812,13 +944,17 @@ const CustomTooltip = ({ active, payload, darkMode }) => {
                     padding: '10px', border: `1px solid ${darkMode ? '#374151' : '#e5e7eb'}`,
                     borderRadius: '8px', color: darkMode ? '#f3f4f6' : '#111827', fontSize: '13px'
                 }}>
-                    <div className="mb-1 font-semibold">{data.source.name} → {data.target.name}</div>
-                    <div>Volume: {data.value.toLocaleString()} sats</div>
-                    {data.fee !== undefined && <div style={{ color: '#f59e0b', fontWeight: 600 }}>Earned: {data.fee.toLocaleString()} sats</div>}
+                    <div className="mb-2 font-semibold border-b pb-1" style={{ borderColor: darkMode ? '#374151' : '#e5e7eb' }}>
+                        {data.source.name} → {data.target.name}
+                    </div>
+                    {data.count !== undefined && <div style={{ color: data.metric === 'count' ? '#ec4899' : undefined, fontWeight: data.metric === 'count' ? 700 : 400 }}>Forwards: {data.count.toLocaleString()}</div>}
+                    {data.volume !== undefined && <div style={{ color: data.metric === 'volume' ? '#10b981' : undefined, fontWeight: data.metric === 'volume' ? 700 : 400 }}>Volume: {data.volume.toLocaleString()} sats</div>}
+                    {data.fee !== undefined && <div style={{ color: data.metric === 'fee' ? '#f59e0b' : undefined, fontWeight: data.metric === 'fee' ? 700 : 400 }}>Earned: {data.fee.toLocaleString()} sats</div>}
                 </div>
             );
         }
         // node tooltip
+        const labelText = data.id?.endsWith('_in') ? 'Inbound' : 'Outbound';
         return (
             <div style={{
                 backgroundColor: darkMode ? '#1f2937' : '#ffffff',
@@ -826,7 +962,7 @@ const CustomTooltip = ({ active, payload, darkMode }) => {
                 borderRadius: '8px', color: darkMode ? '#f3f4f6' : '#111827', fontSize: '13px'
             }}>
                 <div className="font-semibold">{data.name}</div>
-                <div>Total Routed: {data.value.toLocaleString()} sats</div>
+                <div className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>Total {labelText} Metric ({Math.floor(data.value).toLocaleString()})</div>
             </div>
         );
     }
@@ -836,8 +972,15 @@ const CustomTooltip = ({ active, payload, darkMode }) => {
 const CustomNode = ({ x, y, width, height, index, payload, darkMode }) => {
     // We explicitly tagged nodes with _in and _out in topRoutesSankeyData
     const isOut = payload.id && payload.id.endsWith('_out');
-    // Left (Inbound) = Green, Right (Outbound) = Blue
-    const fill = isOut ? '#3b82f6' : '#10b981';
+    // Left (Inbound) = Blue, Right (Outbound) = Green
+    const fill = isOut ? '#10b981' : '#3b82f6';
+
+    const formatLabelValue = (val) => {
+        val = Math.floor(val);
+        if (val > 1000000) return (val / 1000000).toFixed(1) + 'M';
+        if (val > 1000) return (val / 1000).toFixed(1) + 'k';
+        return val.toLocaleString();
+    };
 
     return (
         <g>
@@ -860,7 +1003,7 @@ const CustomNode = ({ x, y, width, height, index, payload, darkMode }) => {
                 fontSize="10"
                 fill={darkMode ? '#9ca3af' : '#6b7280'}
             >
-                {payload.value.toLocaleString()} sats
+                {formatLabelValue(payload.value)}
             </text>
         </g>
     );

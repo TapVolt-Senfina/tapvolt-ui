@@ -430,8 +430,8 @@ const CustomNode = ({ x, y, width, height, index, payload, darkMode }) => {
     const isOut = payload.isOut;
     const isFailed = payload.isFailed || payload.name.includes('(Failed)');
 
-    // Left (Inbound) = Green, Right (Outbound) = Blue
-    let fill = isOut ? '#3b82f6' : '#10b981';
+    // Left (Inbound) = Blue, Right (Outbound) = Green
+    let fill = isOut ? '#10b981' : '#3b82f6';
     if (isFailed) fill = '#ef4444'; // Red for failed routes
 
     return (
