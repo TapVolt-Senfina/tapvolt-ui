@@ -159,18 +159,17 @@ const HtlcsPage = ({ lnc, darkMode, nodeChannels = [] }) => {
 
             if (!status) return;
 
-            const inId = String(e.incomingChannelId || '0');
-            let outId = String(e.enrichedOutChan || '0');
+            const inIdRaw = String(e.incomingChannelId || '0');
+            let outIdRaw = String(e.enrichedOutChan || '0');
 
             const amtMsat = e.enrichedAmtOutMsat;
             if (!amtMsat) return; // Cannot chart without amounts
 
-            if (status === 'failed') {
-                outId = `${outId}_failed`;
-            }
-
             const amtSats = Math.floor(amtMsat / 1000);
             if (amtSats <= 0) return;
+
+            const inId = `${inIdRaw}_in`;
+            const outId = status === 'failed' ? `${outIdRaw}_out_failed` : `${outIdRaw}_out`;
 
             const key = `${inId}_${outId}_${status}`;
             if (!linkMap.has(key)) {
@@ -188,11 +187,13 @@ const HtlcsPage = ({ lnc, darkMode, nodeChannels = [] }) => {
 
         const nodes = Array.from(uniqueChanIds).map(id => {
             const isFailed = id.endsWith('_failed');
-            const realId = isFailed ? id.replace('_failed', '') : id;
+            const isOut = id.includes('_out');
+            const realId = id.replace('_failed', '').replace('_in', '').replace('_out', '');
             return {
                 name: isFailed ? `${chanLabel(realId)} (Failed)` : chanLabel(realId),
                 id,
-                isFailed
+                isFailed,
+                isOut
             };
         });
 
@@ -363,18 +364,18 @@ const HtlcsPage = ({ lnc, darkMode, nodeChannels = [] }) => {
                             </table>
                         </div>
                     ) : (
-                        <div className="p-6 h-[500px]">
+                        <div style={{ width: '100%', height: Math.max(500, (sankeyData?.nodes?.length || 0) * 45), minHeight: 500, padding: 24, paddingRight: 48, paddingLeft: 48 }}>
                             {!sankeyData ? (
                                 <div className="w-full h-full flex items-center justify-center text-sm" style={{ color: 'var(--text-secondary)' }}>
                                     No settled or failed forward events observed yet to build visualization.
                                 </div>
                             ) : (
-                                <ResponsiveContainer width="100%" height="100%">
+                                <ResponsiveContainer width="100%" height="100%" minHeight={500}>
                                     <Sankey
                                         data={sankeyData}
                                         nodePadding={50}
-                                        margin={{ left: 20, right: 20, top: 20, bottom: 20 }}
-                                        node={{ shape: CustomNode }}
+                                        margin={{ left: 20, right: 20, top: 40, bottom: 40 }}
+                                        node={(props) => <CustomNode {...props} darkMode={darkMode} />}
                                         link={{ stroke: darkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)' }}
                                     >
                                         <Tooltip content={<CustomTooltip darkMode={darkMode} />} />
@@ -425,10 +426,13 @@ const CustomTooltip = ({ active, payload, darkMode }) => {
 };
 
 // Custom Node for Sankey
-const CustomNode = ({ x, y, width, height, index, payload, containerWidth }) => {
-    const isOut = x + width + 10 > containerWidth;
+const CustomNode = ({ x, y, width, height, index, payload, darkMode }) => {
+    const isOut = payload.isOut;
     const isFailed = payload.isFailed || payload.name.includes('(Failed)');
-    const fill = isFailed ? '#ef4444' : '#6366f1';
+
+    // Left (Inbound) = Green, Right (Outbound) = Blue
+    let fill = isOut ? '#3b82f6' : '#10b981';
+    if (isFailed) fill = '#ef4444'; // Red for failed routes
 
     return (
         <g>
@@ -439,7 +443,7 @@ const CustomNode = ({ x, y, width, height, index, payload, containerWidth }) => 
                 textAnchor={isOut ? 'end' : 'start'}
                 dominantBaseline="middle"
                 fontSize="12"
-                fill="var(--text-primary)"
+                fill={darkMode ? '#f3f4f6' : '#111827'}
                 fontWeight="600"
             >
                 {payload.name}
@@ -449,7 +453,7 @@ const CustomNode = ({ x, y, width, height, index, payload, containerWidth }) => 
                 y={y + height / 2 + 14}
                 textAnchor={isOut ? 'end' : 'start'}
                 fontSize="10"
-                fill="var(--text-secondary)"
+                fill={darkMode ? '#9ca3af' : '#6b7280'}
             >
                 {payload.value.toLocaleString()} sats
             </text>

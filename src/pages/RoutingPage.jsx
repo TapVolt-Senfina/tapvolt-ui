@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { Sankey, Tooltip, ResponsiveContainer } from 'recharts';
 import SimpleChart from '../components/SimpleChart';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -300,6 +301,7 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
     const [page, setPage] = useState(0);
+    const [topRoutesTab, setTopRoutesTab] = useState('table');
 
     // ── fetch ─────────────────────────────────────────────────────────────────
     const fetchAll = useCallback(async (periodKey) => {
@@ -525,6 +527,35 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
         return entry?.alias || shortChan(chanId);
     };
 
+    const topRoutesSankeyData = useMemo(() => {
+        if (!topRoutes || topRoutes.length === 0) return null;
+
+        const uniqueChanIds = new Set();
+        topRoutes.forEach(r => {
+            uniqueChanIds.add(`${r.chanIdIn}_in`);
+            uniqueChanIds.add(`${r.chanIdOut}_out`);
+        });
+
+        // Create separated nodes for incoming and outgoing to prevent cyclic graphs
+        const nodes = Array.from(uniqueChanIds).map(id => ({
+            name: chanLabel(id.replace('_in', '').replace('_out', '')),
+            id
+        }));
+
+        const nodeMap = new Map();
+        nodes.forEach((n, idx) => nodeMap.set(n.id, idx));
+
+        const links = topRoutes.map(r => ({
+            source: nodeMap.get(`${r.chanIdIn}_in`),
+            target: nodeMap.get(`${r.chanIdOut}_out`),
+            value: r.volume,
+            fee: r.fee
+        }));
+
+        if (nodes.length === 0 || links.length === 0) return null;
+        return { nodes, links };
+    }, [topRoutes, chanAliasMap]);
+
     // ── pagination ────────────────────────────────────────────────────────────
     const totalPages = Math.ceil(normForwards.length / ROWS_PER_PAGE);
     const pageRows = normForwards.slice(page * ROWS_PER_PAGE, (page + 1) * ROWS_PER_PAGE);
@@ -650,30 +681,68 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
                     {/* Top Routes */}
                     {topRoutes.length > 0 && (
                         <div className="rounded-xl overflow-hidden transition-colors duration-300" style={cardStyle}>
-                            <div className="p-4 flex items-center justify-between">
-                                <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Top Routes by Fee Earned</h3>
-                                <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: darkMode ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.1)', color: '#6366f1' }}>
+                            <div className="p-0 border-b flex items-center justify-between" style={{ borderColor: darkMode ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)' }}>
+                                <div className="flex items-center gap-4 px-4 pt-4">
+                                    <button
+                                        onClick={() => setTopRoutesTab('table')}
+                                        className={`pb-3 font-semibold text-sm transition-colors border-b-2 ${topRoutesTab === 'table' ? 'border-indigo-500 text-indigo-500' : 'border-transparent text-gray-400 hover:text-gray-300'}`}
+                                    >
+                                        Top Routes Table
+                                    </button>
+                                    <button
+                                        onClick={() => setTopRoutesTab('sankey')}
+                                        className={`pb-3 font-semibold text-sm transition-colors border-b-2 ${topRoutesTab === 'sankey' ? 'border-indigo-500 text-indigo-500' : 'border-transparent text-gray-400 hover:text-gray-300'}`}
+                                    >
+                                        Sankey Visualization
+                                    </button>
+                                </div>
+                                <span className="text-xs px-2 py-1 rounded-full mr-4" style={{ backgroundColor: darkMode ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.1)', color: '#6366f1' }}>
                                     {topRoutes.length} route{topRoutes.length !== 1 ? 's' : ''}
                                 </span>
                             </div>
-                            <div style={{ overflowX: 'auto' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                    <thead>
-                                        <tr>{['In Channel', 'Out Channel', 'Forwards', 'Volume (sats)', 'Fee (sats)', 'Avg Fee ppm'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
-                                    </thead>
-                                    <tbody>
-                                        {topRoutes.map((r, i) => (
-                                            <tr key={i} style={{ backgroundColor: i % 2 === 0 ? 'transparent' : darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)' }}>
-                                                <td style={{ ...tdStyle, color: '#6366f1' }} title={r.chanIdIn}>{chanLabel(r.chanIdIn)}</td>
-                                                <td style={{ ...tdStyle, color: '#10b981' }} title={r.chanIdOut}>{chanLabel(r.chanIdOut)}</td>
-                                                <td style={tdStyle}>{r.count.toLocaleString()}</td>
-                                                <td style={tdStyle}>{fmtSats(r.volume)}</td>
-                                                <td style={{ ...tdStyle, color: '#f59e0b', fontWeight: 700 }}>{fmtSats(r.fee)}</td>
-                                                <td style={tdStyle}>{fmtPpm(r.fee, r.volume)}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+
+                            <div className="p-0">
+                                {topRoutesTab === 'table' ? (
+                                    <div style={{ overflowX: 'auto' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                            <thead>
+                                                <tr>{['In Channel', 'Out Channel', 'Forwards', 'Volume (sats)', 'Fee (sats)', 'Avg Fee ppm'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                                            </thead>
+                                            <tbody>
+                                                {topRoutes.map((r, i) => (
+                                                    <tr key={i} style={{ backgroundColor: i % 2 === 0 ? 'transparent' : darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)' }}>
+                                                        <td style={{ ...tdStyle, color: '#6366f1' }} title={r.chanIdIn}>{chanLabel(r.chanIdIn)}</td>
+                                                        <td style={{ ...tdStyle, color: '#10b981' }} title={r.chanIdOut}>{chanLabel(r.chanIdOut)}</td>
+                                                        <td style={tdStyle}>{r.count.toLocaleString()}</td>
+                                                        <td style={tdStyle}>{fmtSats(r.volume)}</td>
+                                                        <td style={{ ...tdStyle, color: '#f59e0b', fontWeight: 700 }}>{fmtSats(r.fee)}</td>
+                                                        <td style={tdStyle}>{fmtPpm(r.fee, r.volume)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : (
+                                    <div style={{ width: '100%', height: Math.max(500, (topRoutesSankeyData?.nodes?.length || 0) * 45), minHeight: 500, padding: 24, paddingRight: 48, paddingLeft: 48 }}>
+                                        {!topRoutesSankeyData ? (
+                                            <div className="w-full h-full flex items-center justify-center text-sm" style={{ color: 'var(--text-secondary)' }}>
+                                                No routes available to build visualization.
+                                            </div>
+                                        ) : (
+                                            <ResponsiveContainer width="100%" height="100%" minHeight={500}>
+                                                <Sankey
+                                                    data={topRoutesSankeyData}
+                                                    nodePadding={50}
+                                                    margin={{ left: 20, right: 20, top: 40, bottom: 40 }}
+                                                    node={(props) => <CustomNode {...props} darkMode={darkMode} />}
+                                                    link={{ stroke: darkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)' }}
+                                                >
+                                                    <Tooltip content={<CustomTooltip darkMode={darkMode} />} />
+                                                </Sankey>
+                                            </ResponsiveContainer>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -727,6 +796,73 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
                 </>
             )}
         </div>
+    );
+};
+
+// ─── custom components for sankey ─────────────────────────────────────────────
+
+const CustomTooltip = ({ active, payload, darkMode }) => {
+    if (active && payload && payload.length) {
+        const data = payload[0].payload;
+        // link tooltip
+        if (data.source) {
+            return (
+                <div style={{
+                    backgroundColor: darkMode ? '#1f2937' : '#ffffff',
+                    padding: '10px', border: `1px solid ${darkMode ? '#374151' : '#e5e7eb'}`,
+                    borderRadius: '8px', color: darkMode ? '#f3f4f6' : '#111827', fontSize: '13px'
+                }}>
+                    <div className="mb-1 font-semibold">{data.source.name} → {data.target.name}</div>
+                    <div>Volume: {data.value.toLocaleString()} sats</div>
+                    {data.fee !== undefined && <div style={{ color: '#f59e0b', fontWeight: 600 }}>Earned: {data.fee.toLocaleString()} sats</div>}
+                </div>
+            );
+        }
+        // node tooltip
+        return (
+            <div style={{
+                backgroundColor: darkMode ? '#1f2937' : '#ffffff',
+                padding: '10px', border: `1px solid ${darkMode ? '#374151' : '#e5e7eb'}`,
+                borderRadius: '8px', color: darkMode ? '#f3f4f6' : '#111827', fontSize: '13px'
+            }}>
+                <div className="font-semibold">{data.name}</div>
+                <div>Total Routed: {data.value.toLocaleString()} sats</div>
+            </div>
+        );
+    }
+    return null;
+};
+
+const CustomNode = ({ x, y, width, height, index, payload, darkMode }) => {
+    // We explicitly tagged nodes with _in and _out in topRoutesSankeyData
+    const isOut = payload.id && payload.id.endsWith('_out');
+    // Left (Inbound) = Green, Right (Outbound) = Blue
+    const fill = isOut ? '#3b82f6' : '#10b981';
+
+    return (
+        <g>
+            <rect x={x} y={y} width={width} height={height} fill={fill} fillOpacity="0.8" rx={2} />
+            <text
+                x={isOut ? x - 6 : x + width + 6}
+                y={y + height / 2}
+                textAnchor={isOut ? 'end' : 'start'}
+                dominantBaseline="middle"
+                fontSize="12"
+                fill={darkMode ? '#f3f4f6' : '#111827'}
+                fontWeight="600"
+            >
+                {payload.name}
+            </text>
+            <text
+                x={isOut ? x - 6 : x + width + 6}
+                y={y + height / 2 + 14}
+                textAnchor={isOut ? 'end' : 'start'}
+                fontSize="10"
+                fill={darkMode ? '#9ca3af' : '#6b7280'}
+            >
+                {payload.value.toLocaleString()} sats
+            </text>
+        </g>
     );
 };
 
