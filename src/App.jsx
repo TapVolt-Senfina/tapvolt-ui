@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './App.css';
 import { Buffer } from 'buffer';
 import LNC from '@lightninglabs/lnc-web';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 // Constants and Helpers
 import { ASSET_TYPE_COLLECTIBLE_NUM, ASSET_VERSION_V0_NUM, META_TYPE_OPAQUE_NUM, ASSET_TYPE_NORMAL_NUM } from './utils/constants';
@@ -20,6 +20,7 @@ import ChannelsPage from './pages/ChannelsPage';
 import TaprootAssetsPage from './pages/TaprootAssetsPage';
 import HtlcsPage from './pages/HtlcsPage';
 import GraphAnalysisPage from './pages/GraphAnalysisPage';
+import MissionControlPage from './pages/MissionControlPage';
 
 function App() {
   // LNC & Node State
@@ -999,7 +1000,7 @@ function App() {
   }
 
   return (
-    <BrowserRouter>
+    <HashRouter>
       <div className="min-h-screen transition-colors duration-300" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
         <DarkModeToggle darkMode={darkMode} toggleDarkMode={toggleDarkMode} />
 
@@ -1029,6 +1030,7 @@ function App() {
             <Route path="/channels" element={<ChannelsPage lnc={lnc} darkMode={darkMode} nodeChannels={nodeChannels} />} />
             <Route path="/htlcs" element={<HtlcsPage lnc={lnc} darkMode={darkMode} nodeChannels={nodeChannels} events={htlcEvents} isSubscribed={htlcSubscribed} subError={htlcError} />} />
             <Route path="/graph" element={<GraphAnalysisPage lnc={lnc} darkMode={darkMode} />} />
+            <Route path="/mission-control" element={<MissionControlPage lnc={lnc} darkMode={darkMode} />} />
             <Route
               path="/taproot-assets"
               element={
@@ -1123,7 +1125,7 @@ function App() {
           }
         `}</style>
       </div>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
 

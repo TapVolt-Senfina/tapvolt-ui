@@ -150,6 +150,34 @@ const NavBar = ({ darkMode }) => {
         </svg>
         Graph
       </NavLink>
+
+      <NavLink
+        to="/mission-control"
+        className={({ isActive }) =>
+          isActive
+            ? `${activeCls} text-white`
+            : `${activeCls} hover:opacity-80`
+        }
+        style={({ isActive }) =>
+          isActive
+            ? {
+              background: 'linear-gradient(135deg, #14b8a6, #0f766e)',
+              color: '#ffffff',
+              boxShadow: darkMode
+                ? '0 4px 14px rgba(20,184,166,0.4)'
+                : '0 4px 14px rgba(15,118,110,0.25)',
+            }
+            : { color: 'var(--text-secondary)', background: 'transparent' }
+        }
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3v18" />
+          <path d="M5 12h14" />
+          <path d="M7 7l10 10" />
+          <path d="M17 7l-10 10" />
+        </svg>
+        Mission Control
+      </NavLink>
     </nav>
   );
 };

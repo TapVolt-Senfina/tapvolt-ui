@@ -129,6 +129,9 @@ const GraphAnalysisPage = ({ lnc, darkMode }) => {
     const [nodeQuery, setNodeQuery] = useState('');
     const [edgeQuery, setEdgeQuery] = useState('');
     const [activeTable, setActiveTable] = useState('nodes');
+    const [networkSize, setNetworkSize] = useState(36);
+    const [showLabels, setShowLabels] = useState(true);
+    const [focusNode, setFocusNode] = useState('');
 
     const fetchGraph = useCallback(async () => {
         if (!lnc?.lnd?.lightning) {
@@ -340,6 +343,68 @@ const GraphAnalysisPage = ({ lnc, darkMode }) => {
         const COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ec4899'];
         return { subjects, data, labels, colors: COLORS.slice(0, top5.length) };
     }, [normalized.nodeStats]);
+
+    const network = useMemo(() => {
+        const maxNodes = Math.max(8, Math.min(networkSize, normalized.nodeStats.length));
+        const nodes = normalized.nodeStats.slice(0, maxNodes);
+        const nodeSet = new Set(nodes.map(n => n.pub_key));
+
+        const width = 900;
+        const height = 520;
+        const center = { x: width / 2, y: height / 2 };
+        const ring1Count = Math.min(10, nodes.length);
+        const ring2Count = Math.min(14, Math.max(0, nodes.length - ring1Count));
+        const ring3Count = Math.max(0, nodes.length - ring1Count - ring2Count);
+
+        const ring1 = nodes.slice(0, ring1Count);
+        const ring2 = nodes.slice(ring1Count, ring1Count + ring2Count);
+        const ring3 = nodes.slice(ring1Count + ring2Count, ring1Count + ring2Count + ring3Count);
+
+        const placeRing = (ringNodes, radius) => ringNodes.map((n, i) => {
+            const angle = (2 * Math.PI * i) / Math.max(1, ringNodes.length);
+            return {
+                ...n,
+                x: center.x + Math.cos(angle) * radius,
+                y: center.y + Math.sin(angle) * radius,
+            };
+        });
+
+        const arranged = [
+            ...placeRing(ring1, 120),
+            ...placeRing(ring2, 200),
+            ...placeRing(ring3, 280),
+        ];
+
+        const posByPub = new Map(arranged.map(n => [n.pub_key, n]));
+        let edges = normalized.edges.filter((e) => {
+            const n1 = String(e.node1_pub || e.node1Pub || '').toLowerCase();
+            const n2 = String(e.node2_pub || e.node2Pub || '').toLowerCase();
+            return nodeSet.has(n1) && nodeSet.has(n2);
+        }).map((e, idx) => ({
+            id: e.channel_id || e.channelId || String(idx),
+            n1: String(e.node1_pub || e.node1Pub || '').toLowerCase(),
+            n2: String(e.node2_pub || e.node2Pub || '').toLowerCase(),
+            cap: toNum(e.capacity),
+        }));
+
+        if (edges.length > 1200) {
+            const step = Math.ceil(edges.length / 1200);
+            edges = edges.filter((_, i) => i % step === 0);
+        }
+
+        const maxCap = Math.max(...edges.map(e => e.cap), 1);
+        return { nodes: arranged, edges, width, height, maxCap, posByPub };
+    }, [normalized.edges, normalized.nodeStats, networkSize]);
+
+    const focusNeighbors = useMemo(() => {
+        if (!focusNode) return null;
+        const set = new Set([focusNode]);
+        network.edges.forEach((e) => {
+            if (e.n1 === focusNode) set.add(e.n2);
+            if (e.n2 === focusNode) set.add(e.n1);
+        });
+        return set;
+    }, [focusNode, network.edges]);
 
     const thStyle = useMemo(() => ({
         padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700,
@@ -597,6 +662,136 @@ const GraphAnalysisPage = ({ lnc, darkMode }) => {
                             </div>
                         </ChartCard>
                     )}
+
+                    <ChartCard
+                        title="Peer + channel map"
+                        subtitle="Topology view of the most connected nodes (not to scale)"
+                        darkMode={darkMode}
+                        right={
+                            <div className="flex items-center gap-2">
+                                <select
+                                    value={networkSize}
+                                    onChange={(e) => setNetworkSize(Number(e.target.value))}
+                                    className="px-2 py-1.5 rounded-lg text-xs"
+                                    style={{
+                                        backgroundColor: 'var(--input-bg)',
+                                        border: `1px solid ${darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`,
+                                        color: 'var(--text-primary)',
+                                    }}
+                                >
+                                    <option value={24}>24 nodes</option>
+                                    <option value={36}>36 nodes</option>
+                                    <option value={48}>48 nodes</option>
+                                    <option value={60}>60 nodes</option>
+                                </select>
+                                <label className="text-xs flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer"
+                                    style={{ backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)', color: 'var(--text-secondary)' }}>
+                                    <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} />
+                                    labels
+                                </label>
+                            </div>
+                        }
+                    >
+                        <div className="grid lg:grid-cols-[1.6fr_1fr] gap-4">
+                            <div style={{ width: '100%', height: 460 }}>
+                                <svg viewBox={`0 0 ${network.width} ${network.height}`} width="100%" height="100%">
+                                    <defs>
+                                        <radialGradient id="nodeGlow" cx="50%" cy="50%" r="50%">
+                                            <stop offset="0%" stopColor="rgba(99,102,241,0.7)" />
+                                            <stop offset="100%" stopColor="rgba(99,102,241,0.05)" />
+                                        </radialGradient>
+                                    </defs>
+                                    <rect width="100%" height="100%" fill="transparent" />
+                                    {network.edges.map((e) => {
+                                        const n1 = network.posByPub.get(e.n1);
+                                        const n2 = network.posByPub.get(e.n2);
+                                        if (!n1 || !n2) return null;
+                                        const isActive = focusNode && (e.n1 === focusNode || e.n2 === focusNode);
+                                        const isDim = focusNode && !isActive;
+                                        const width = 0.6 + (e.cap / network.maxCap) * 2.2;
+                                        return (
+                                            <line
+                                                key={`${e.id}-${e.n1}-${e.n2}`}
+                                                x1={n1.x}
+                                                y1={n1.y}
+                                                x2={n2.x}
+                                                y2={n2.y}
+                                                stroke={isActive ? '#0ea5e9' : '#94a3b8'}
+                                                strokeOpacity={isDim ? 0.08 : isActive ? 0.6 : 0.25}
+                                                strokeWidth={width}
+                                            />
+                                        );
+                                    })}
+
+                                    {network.nodes.map((n) => {
+                                        const isFocused = focusNode === n.pub_key;
+                                        const isConnected = focusNeighbors ? focusNeighbors.has(n.pub_key) : true;
+                                        const r = 4 + Math.min(10, Math.log2(n.channels + 1));
+                                        return (
+                                            <g key={n.pub_key} onMouseEnter={() => setFocusNode(n.pub_key)} onMouseLeave={() => setFocusNode('')}>
+                                                <circle cx={n.x} cy={n.y} r={r * 2.2} fill="url(#nodeGlow)" opacity={isFocused ? 0.6 : 0.3} />
+                                                <circle
+                                                    cx={n.x}
+                                                    cy={n.y}
+                                                    r={r}
+                                                    fill={isFocused ? '#6366f1' : '#0ea5e9'}
+                                                    fillOpacity={isConnected ? 0.95 : 0.25}
+                                                    stroke="#0f172a"
+                                                    strokeOpacity={darkMode ? 0.5 : 0.15}
+                                                />
+                                                {showLabels && (
+                                                    <text
+                                                        x={n.x}
+                                                        y={n.y - r - 6}
+                                                        textAnchor="middle"
+                                                        fontSize="10"
+                                                        fill={darkMode ? 'rgba(255,255,255,0.7)' : 'rgba(15,23,42,0.65)'}
+                                                    >
+                                                        {n.alias || shortHex(n.pub_key, 8)}
+                                                    </text>
+                                                )}
+                                            </g>
+                                        );
+                                    })}
+                                </svg>
+                            </div>
+                            <div className="space-y-3 text-sm">
+                                <div className="rounded-lg p-3" style={{ backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' }}>
+                                    <p className="text-xs uppercase font-semibold tracking-widest" style={{ color: 'var(--text-secondary)' }}>Focus</p>
+                                    {focusNode ? (
+                                        <>
+                                            <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                                {normalized.nodeByPub.get(focusNode)?.alias || 'Unknown'}
+                                            </p>
+                                            <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                                                {shortHex(focusNode, 22)}
+                                            </p>
+                                        </>
+                                    ) : (
+                                        <p style={{ color: 'var(--text-secondary)' }}>Hover a node to inspect its neighborhood.</p>
+                                    )}
+                                </div>
+                                {focusNode && (
+                                    <div className="rounded-lg p-3" style={{ backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' }}>
+                                        <p className="text-xs uppercase font-semibold tracking-widest" style={{ color: 'var(--text-secondary)' }}>Connections</p>
+                                        <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
+                                            {(focusNeighbors?.size || 1) - 1} adjacent nodes
+                                        </p>
+                                        <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                                            Use this to visually spot hubs and clusters for targeted channel strategy.
+                                        </p>
+                                    </div>
+                                )}
+                                <div className="rounded-lg p-3" style={{ backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' }}>
+                                    <p className="text-xs uppercase font-semibold tracking-widest" style={{ color: 'var(--text-secondary)' }}>Legend</p>
+                                    <div className="mt-2 space-y-1">
+                                        <div className="flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: '#0ea5e9' }} /><span>Node (size = degree)</span></div>
+                                        <div className="flex items-center gap-2"><span className="inline-block w-3 h-0.5" style={{ background: '#94a3b8' }} /><span>Channel (thickness = capacity)</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </ChartCard>
 
                     {/* Tables */}
                     <div className="rounded-xl overflow-hidden transition-colors duration-300"
