@@ -339,9 +339,9 @@ const ChannelsPage = ({ lnc, darkMode, nodeChannels = [] }) => {
                         </tbody>
                     </table>
                 </div>
-                < /div>
             </div>
-            );
-                };
+        </div>
+    );
+};
 
-            export default ChannelsPage;
+export default ChannelsPage;

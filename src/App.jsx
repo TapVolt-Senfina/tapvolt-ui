@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import './App.css';
 import { Buffer } from 'buffer';
 import LNC from '@lightninglabs/lnc-web';
@@ -19,6 +19,7 @@ import RoutingPage from './pages/RoutingPage';
 import ChannelsPage from './pages/ChannelsPage';
 import TaprootAssetsPage from './pages/TaprootAssetsPage';
 import HtlcsPage from './pages/HtlcsPage';
+import GraphAnalysisPage from './pages/GraphAnalysisPage';
 
 function App() {
   // LNC & Node State
@@ -36,6 +37,15 @@ function App() {
   const [batchAssets, setBatchAssets] = useState([]);
   const [nodeChannels, setChannels] = useState([]);
   const [nodeInfo, setNodeInfo] = useState(null);
+
+  // Global HTLC stream state (persists across page navigation)
+  const [htlcEvents, setHtlcEvents] = useState([]);
+  const [htlcSubscribed, setHtlcSubscribed] = useState(false);
+  const [htlcError, setHtlcError] = useState(null);
+  const htlcReconnectDelayRef = useRef(2000);
+  const htlcReconnectTimerRef = useRef(null);
+  const htlcSubRef = useRef(null);
+  const htlcMountedRef = useRef(false);
 
   // Connection Form State
   const [pairingPhrase, setPairingPhrase] = useState('');
@@ -595,7 +605,92 @@ function App() {
       listBatches();
       listPeers();
       listTapAssetChannels();
+
+      // ── Global HTLC subscription ──────────────────────────────────────
+      if (!lnc.lnd?.router) {
+        setHtlcError('Router service not available for HTLC stream.');
+        return;
+      }
+
+      htlcMountedRef.current = true;
+      htlcReconnectDelayRef.current = 2000;
+
+      const scheduleHtlcReconnect = () => {
+        if (!htlcMountedRef.current) return;
+        const delay = htlcReconnectDelayRef.current;
+        console.info(`[HTLCs] Reconnecting in ${delay / 1000}s…`);
+        htlcReconnectDelayRef.current = Math.min(delay * 2, 30000);
+        htlcReconnectTimerRef.current = setTimeout(() => {
+          if (htlcMountedRef.current) startHtlcSub();
+        }, delay);
+      };
+
+      const startHtlcSub = () => {
+        try {
+          if (!htlcMountedRef.current) return;
+          setHtlcSubscribed(true);
+          setHtlcError(null);
+          htlcSubRef.current = lnc.lnd.router.subscribeHtlcEvents({}, (data) => {
+            if (!htlcMountedRef.current) return;
+            const evt = data.htlcEvent || data;
+            if (evt.subscribedEvent || (evt.eventType === 'UNKNOWN' && evt.timestampNs === '0')) return;
+            htlcReconnectDelayRef.current = 2000;
+            setHtlcEvents(prev => {
+              const isDuplicate = prev.some(p =>
+                p.timestampNs === evt.timestampNs &&
+                p.incomingHtlcId === evt.incomingHtlcId &&
+                p.eventType === evt.eventType
+              );
+              if (isDuplicate) return prev;
+              return [evt, ...prev].slice(0, 1000);
+            });
+          }, (err) => {
+            if (!htlcMountedRef.current) return;
+            console.error('[HTLCs] Subscription error:', err);
+            setHtlcError(`Reconnecting… (${err.message || 'Connection lost'})`);
+            setHtlcSubscribed(false);
+            scheduleHtlcReconnect();
+          });
+        } catch (err) {
+          if (!htlcMountedRef.current) return;
+          console.error('[HTLCs] Failed to subscribe:', err);
+          setHtlcError(`Reconnecting… (${err.message || 'Failed to connect'})`);
+          scheduleHtlcReconnect();
+        }
+      };
+
+      startHtlcSub();
+
+      return () => {
+        htlcMountedRef.current = false;
+        setHtlcSubscribed(false);
+        clearTimeout(htlcReconnectTimerRef.current);
+        try {
+          const sub = htlcSubRef.current;
+          if (sub) {
+            if (typeof sub.cancel === 'function') sub.cancel();
+            else if (typeof sub === 'function') sub();
+          }
+        } catch (_) { /* ignore */ }
+        htlcSubRef.current = null;
+      };
+      // ─────────────────────────────────────────────────────────────────
     } else {
+      // Disconnect: cancel existing HTLC sub
+      htlcMountedRef.current = false;
+      clearTimeout(htlcReconnectTimerRef.current);
+      try {
+        const sub = htlcSubRef.current;
+        if (sub) {
+          if (typeof sub.cancel === 'function') sub.cancel();
+          else if (typeof sub === 'function') sub();
+        }
+      } catch (_) { /* ignore */ }
+      htlcSubRef.current = null;
+
+      setHtlcEvents([]);
+      setHtlcSubscribed(false);
+      setHtlcError(null);
       setNodeInfo(null);
       setChannels([]);
       setAssets([]);
@@ -611,7 +706,7 @@ function App() {
       setTapInvoiceSuccess(null);
       setLatestTapInvoice(null);
     }
-  }, [lnc, getInfo, listChannels, listAssets, listBatches, listPeers, listTapAssetChannels]); // Added useCallback dependencies
+  }, [lnc, getInfo, listChannels, listAssets, listBatches, listPeers, listTapAssetChannels]);
 
   useEffect(() => {
     if (!invoiceChannelAssets.length) {
@@ -624,6 +719,23 @@ function App() {
       setSelectedInvoiceAssetId(invoiceChannelAssets[0].assetIdHex);
     }
   }, [invoiceChannelAssets, selectedInvoiceAssetId]);
+
+  // Count HTLCs that have been forwarded but not yet settled or failed
+  const pendingHtlcCount = useMemo(() => {
+    const resolved = new Set();
+    htlcEvents.forEach(e => {
+      if (e.settleEvent || e.forwardFailEvent || e.linkFailEvent || e.finalHtlcEvent) {
+        resolved.add(`${e.incomingChannelId}_${e.incomingHtlcId}`);
+      }
+    });
+    let pending = 0;
+    htlcEvents.forEach(e => {
+      if (e.forwardEvent && !resolved.has(`${e.incomingChannelId}_${e.incomingHtlcId}`)) {
+        pending++;
+      }
+    });
+    return pending;
+  }, [htlcEvents]);
 
   // Mint Asset Form Handlers
   const handleAssetTypeChange = (e) => {
@@ -910,12 +1022,13 @@ function App() {
             onShowPeers={() => setIsPeersModalOpen(true)}
           />
 
-          <NavBar darkMode={darkMode} />
+          <NavBar darkMode={darkMode} pendingHtlcCount={pendingHtlcCount} />
 
           <Routes>
             <Route path="/routing" element={<RoutingPage lnc={lnc} darkMode={darkMode} nodeChannels={nodeChannels} />} />
             <Route path="/channels" element={<ChannelsPage lnc={lnc} darkMode={darkMode} nodeChannels={nodeChannels} />} />
-            <Route path="/htlcs" element={<HtlcsPage lnc={lnc} darkMode={darkMode} nodeChannels={nodeChannels} />} />
+            <Route path="/htlcs" element={<HtlcsPage lnc={lnc} darkMode={darkMode} nodeChannels={nodeChannels} events={htlcEvents} isSubscribed={htlcSubscribed} subError={htlcError} />} />
+            <Route path="/graph" element={<GraphAnalysisPage lnc={lnc} darkMode={darkMode} />} />
             <Route
               path="/taproot-assets"
               element={
