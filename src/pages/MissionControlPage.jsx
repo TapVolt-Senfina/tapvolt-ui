@@ -108,7 +108,7 @@ const makeDownload = (filename, obj) => {
   URL.revokeObjectURL(url);
 };
 
-const MissionControlPage = ({ lnc, darkMode }) => {
+const MissionControlPage = ({ lnc, darkMode, nodeChannels }) => {
   const [mc, setMc] = useState(null);
   const [localPub, setLocalPub] = useState('');
   const [aliasMap, setAliasMap] = useState(() => new Map());
@@ -117,6 +117,8 @@ const MissionControlPage = ({ lnc, darkMode }) => {
   const [peerMode, setPeerMode] = useState('local_out');
   const [pairQuery, setPairQuery] = useState('');
   const [pairSort, setPairSort] = useState('score');
+  const [targetAmtSat, setTargetAmtSat] = useState('100000');
+  const [riskBias, setRiskBias] = useState(0.6);
 
   const bytesToHex = useCallback((value) => {
     if (!value) return '';
@@ -132,6 +134,16 @@ const MissionControlPage = ({ lnc, darkMode }) => {
     }
     return '';
   }, []);
+
+  const extractChannelPeerHex = useCallback((channel) => {
+    return bytesToHex(
+      channel?.peerPubkey ||
+      channel?.peerPubKey ||
+      channel?.remotePubkey ||
+      channel?.remotePubKey ||
+      channel?.peer
+    );
+  }, [bytesToHex]);
 
   useEffect(() => {
     let active = true;
@@ -312,12 +324,12 @@ const MissionControlPage = ({ lnc, darkMode }) => {
       const failAge = row.lastFail ? Math.max(0, now - row.lastFail) : 0;
       const successScore = row.successAmt ? Math.log10(row.successAmt + 1) * (1 / (1 + successAge / 86400)) : 0;
       const failPenalty = row.failAmt ? Math.log10(row.failAmt + 1) * (1 / (1 + failAge / 86400)) : 0;
-      row.score = successScore - 0.6 * failPenalty;
+      row.score = successScore - riskBias * failPenalty;
       row.successAge = successAge;
       row.failAge = failAge;
     });
-    return Array.from(byPeer.values()).sort((a, b) => b.score - a.score).slice(0, 20);
-  }, [normalizedPairs, localPub, peerMode]);
+    return Array.from(byPeer.values()).sort((a, b) => b.score - a.score).slice(0, 40);
+  }, [normalizedPairs, localPub, peerMode, riskBias]);
 
   const aliasLookup = useCallback((pub) => {
     if (!pub) return '';
@@ -388,6 +400,70 @@ const MissionControlPage = ({ lnc, darkMode }) => {
     });
     return sorted.slice(0, 200);
   }, [normalizedPairs, pairQuery, pairSort]);
+
+  const recommendations = useMemo(() => {
+    const targetMsat = Math.max(0, toNum(targetAmtSat) * 1000);
+    const existingPeers = new Set(
+      Array.isArray(nodeChannels)
+        ? nodeChannels.map(extractChannelPeerHex).filter(Boolean)
+        : []
+    );
+
+    const directionByPeer = new Map();
+    if (localPub) {
+      normalizedPairs.forEach((p) => {
+        if (p.from === localPub && p.to) {
+          const row = directionByPeer.get(p.to) || { inMsat: 0, outMsat: 0 };
+          row.outMsat += p.successAmtMsat;
+          directionByPeer.set(p.to, row);
+        }
+        if (p.to === localPub && p.from) {
+          const row = directionByPeer.get(p.from) || { inMsat: 0, outMsat: 0 };
+          row.inMsat += p.successAmtMsat;
+          directionByPeer.set(p.from, row);
+        }
+      });
+    }
+
+    const rows = peerCandidates.map((row) => {
+      const successRatio = row.successAmt / Math.max(1, row.successAmt + row.failAmt);
+      const volumeScore = row.successAmt ? Math.log10(row.successAmt + 1) : 0;
+      const recencyScore = row.successAge ? 1 / (1 + row.successAge / 86400) : 0;
+      const confidence = Math.min(1, (row.successes + row.fails) / 12) * (recencyScore || 0.4);
+
+      const dir = directionByPeer.get(row.peer);
+      let tendency = 'Unknown';
+      if (dir) {
+        const inMsat = dir.inMsat || 0;
+        const outMsat = dir.outMsat || 0;
+        if (inMsat > outMsat * 1.25) tendency = 'Inbound';
+        else if (outMsat > inMsat * 1.25) tendency = 'Outbound';
+        else tendency = 'Balanced';
+      }
+
+      const reasons = [];
+      if (row.successes >= 2) reasons.push('Multiple recent successes');
+      if (row.successAge && row.successAge <= 3 * 86400) reasons.push('Success in last 3d');
+      if (row.failAmt === 0) reasons.push('No recorded failures');
+      if (row.successAmt >= targetMsat && targetMsat > 0) reasons.push('Meets target size');
+      if (!reasons.length) reasons.push('Emerging signal');
+
+      return {
+        ...row,
+        successRatio,
+        confidence,
+        reasons,
+        tendency,
+        isConnected: existingPeers.has(row.peer),
+        volumeScore,
+      };
+    });
+
+    const filtered = rows.filter((r) =>
+      (!targetMsat || r.successAmt >= targetMsat) && !r.isConnected
+    );
+    return filtered.sort((a, b) => b.score - a.score).slice(0, 12);
+  }, [peerCandidates, targetAmtSat, nodeChannels, normalizedPairs, localPub, extractChannelPeerHex]);
 
   const chartTheme = useMemo(() => {
     const axis = darkMode ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)';
@@ -620,6 +696,117 @@ const MissionControlPage = ({ lnc, darkMode }) => {
               )}
             </ChartCard>
           </div>
+
+          <ChartCard
+            title="Recommended channels"
+            subtitle="MC-informed shortlist (excludes peers you already have channels with)"
+            darkMode={darkMode}
+            right={
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  Target sats
+                  <input
+                    value={targetAmtSat}
+                    onChange={(e) => setTargetAmtSat(e.target.value)}
+                    className="px-2 py-1 rounded-md text-xs outline-none"
+                    style={{
+                      width: 110,
+                      backgroundColor: 'var(--input-bg)',
+                      border: `1px solid ${darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`,
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                </div>
+                <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  Risk bias
+                  <input
+                    type="range"
+                    min="0.2"
+                    max="1.2"
+                    step="0.1"
+                    value={riskBias}
+                    onChange={(e) => setRiskBias(Number(e.target.value))}
+                  />
+                  <span>{riskBias.toFixed(1)}</span>
+                </div>
+              </div>
+            }
+          >
+            {recommendations.length === 0 ? (
+              <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                No recommendations yet. Try lowering the target amount or gathering more MC data.
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left', fontSize: 11, color: 'var(--text-secondary)' }}>Peer</th>
+                      <th style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-secondary)' }}>Score</th>
+                  <th style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-secondary)' }}>Success ratio</th>
+                  <th style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-secondary)' }}>Success amt</th>
+                  <th style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-secondary)' }}>Fail amt</th>
+                  <th style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-secondary)' }}>Tendency</th>
+                  <th style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-secondary)' }}>Confidence</th>
+                  <th style={{ textAlign: 'left', fontSize: 11, color: 'var(--text-secondary)' }}>Reason</th>
+                </tr>
+                  </thead>
+                  <tbody>
+                    {recommendations.map((row, idx) => (
+                      <tr key={row.peer} style={{ backgroundColor: idx % 2 === 0 ? 'transparent' : darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)' }}>
+                        <td style={{ padding: '10px 8px' }}>
+                          <div className="font-semibold" style={{ color: '#0ea5e9' }}>{aliasLookup(row.peer) || '—'}</div>
+                          <div className="text-xs" style={{ color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{shortHex(row.peer, 18)}</div>
+                        </td>
+                        <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700, color: row.score >= 0 ? '#10b981' : '#ef4444' }}>
+                          {row.score.toFixed(2)}
+                        </td>
+                        <td style={{ padding: '10px 8px', textAlign: 'right' }}>{(row.successRatio * 100).toFixed(0)}%</td>
+                        <td style={{ padding: '10px 8px', textAlign: 'right' }}>{fmtMsat(row.successAmt)} msat</td>
+                        <td style={{ padding: '10px 8px', textAlign: 'right', color: '#f59e0b' }}>{fmtMsat(row.failAmt)} msat</td>
+                        <td style={{ padding: '10px 8px', textAlign: 'right' }}>
+                          <span
+                            className="px-2 py-0.5 rounded-full text-xs font-semibold"
+                            style={{
+                              background: row.tendency === 'Inbound'
+                                ? 'rgba(14,165,233,0.18)'
+                                : row.tendency === 'Outbound'
+                                  ? 'rgba(16,185,129,0.18)'
+                                  : 'rgba(148,163,184,0.18)',
+                              color: row.tendency === 'Inbound'
+                                ? '#0ea5e9'
+                                : row.tendency === 'Outbound'
+                                  ? '#10b981'
+                                  : '#94a3b8',
+                            }}
+                          >
+                            {row.tendency}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 8px', textAlign: 'right' }}>
+                          <span
+                            className="px-2 py-0.5 rounded-full text-xs font-semibold"
+                            style={{
+                              background: row.confidence > 0.6 ? 'rgba(16,185,129,0.18)' : row.confidence > 0.35 ? 'rgba(245,158,11,0.18)' : 'rgba(148,163,184,0.2)',
+                              color: row.confidence > 0.6 ? '#10b981' : row.confidence > 0.35 ? '#f59e0b' : '#94a3b8',
+                            }}
+                          >
+                            {(row.confidence * 100).toFixed(0)}%
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 8px', fontSize: 12, color: 'var(--text-secondary)' }}>
+                          {row.reasons.join(' · ')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="mt-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+              Recommendations combine mission-control success/failure volumes, recency, and your risk bias. Tendency is inferred from local inbound vs outbound success. Treat as guidance, not guarantees.
+            </div>
+          </ChartCard>
 
           <div
             className="rounded-xl overflow-hidden transition-colors duration-300"

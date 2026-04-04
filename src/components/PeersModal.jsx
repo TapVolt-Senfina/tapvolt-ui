@@ -1,15 +1,31 @@
 import React, { useState } from 'react';
 import { XMarkIcon, PlusCircleIcon, ArrowPathIcon } from '@heroicons/react/24/solid'; // Added PlusCircleIcon, ArrowPathIcon
 
-const PeersModal = ({ isOpen, onClose, peers, darkMode, lnc, onPeerAdded }) => { // Added lnc and onPeerAdded props
+const PeersModal = ({ isOpen, onClose, peers, darkMode, lnc, onPeerAdded, onRefreshPeers }) => { // Added onRefreshPeers prop
   const [newPeerAddr, setNewPeerAddr] = useState('');
   const [connectPeerError, setConnectPeerError] = useState(null);
   const [connectPeerSuccess, setConnectPeerSuccess] = useState(null);
   const [isConnectingPeer, setIsConnectingPeer] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false); // Added isRefreshing state
 
   if (!isOpen) {
     return null;
   }
+
+  const handleRefresh = async () => {
+    if (isRefreshing || !onRefreshPeers) return;
+    setIsRefreshing(true);
+    try {
+      await Promise.race([
+        onRefreshPeers(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Refresh timeout')), 10000))
+      ]);
+    } catch (e) {
+      console.warn("Peers refresh error/timeout:", e);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  };
 
   const modalBgColor = darkMode ? 'var(--bg-card)' : 'var(--bg-secondary)';
   const textColor = darkMode ? 'var(--text-primary)' : 'var(--text-primary)';
@@ -82,7 +98,17 @@ const PeersModal = ({ isOpen, onClose, peers, darkMode, lnc, onPeerAdded }) => {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-4 pb-3 border-b" style={{ borderColor }}>
-          <h3 className="text-xl font-semibold">Connected Peers</h3>
+          <div className="flex items-center gap-3">
+            <h3 className="text-xl font-semibold">Connected Peers</h3>
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className={`p-1.5 rounded-md transition-colors ${isRefreshing ? 'opacity-50' : 'hover:bg-black/10 dark:hover:bg-white/10'}`}
+              title="Refresh peers list"
+            >
+              <ArrowPathIcon className={`h-5 w-5 ${isRefreshing ? 'animate-spin' : ''}`} style={{ color: 'var(--accent-light)' }} />
+            </button>
+          </div>
           <button
             onClick={onClose}
             className="p-1 rounded-full hover:bg-opacity-20 transition-colors"

@@ -554,7 +554,9 @@ function App() {
     } catch (error) { console.error("Failed to list batches:", error); setBatchAssets([]); }
   }, [lnc]);
 
+
   const listTapAssetChannels = useCallback(async () => {
+
     if (!lnc?.tapd?.tapChannels) {
       setTapAssetChannels([]);
       setTapAssetChannelsError('Taproot Asset channel service is not available on this node.');
@@ -596,6 +598,18 @@ function App() {
       setIsLoadingTapAssetChannels(false);
     }
   }, [lnc]);
+
+  const refreshAllData = useCallback(async () => {
+    if (!lnc || !lnc.isConnected) return;
+    console.log('Refreshing all node data...');
+    await Promise.allSettled([
+      getInfo(),
+      listChannels(),
+      listAssets(),
+      listBatches(),
+      listPeers(),
+    ]);
+  }, [lnc, getInfo, listChannels, listAssets, listBatches, listPeers]);
 
   useEffect(() => {
     if (lnc && lnc.isConnected) {
@@ -1021,16 +1035,17 @@ function App() {
             assetsCount={totalAssetsCount}
             peersCount={nodePeers?.length}
             onShowPeers={() => setIsPeersModalOpen(true)}
+            onRefresh={refreshAllData}
           />
 
           <NavBar darkMode={darkMode} pendingHtlcCount={pendingHtlcCount} />
 
           <Routes>
             <Route path="/routing" element={<RoutingPage lnc={lnc} darkMode={darkMode} nodeChannels={nodeChannels} />} />
-            <Route path="/channels" element={<ChannelsPage lnc={lnc} darkMode={darkMode} nodeChannels={nodeChannels} />} />
+            <Route path="/channels" element={<ChannelsPage lnc={lnc} darkMode={darkMode} nodeChannels={nodeChannels} onRefreshChannels={listChannels} nodeInfo={nodeInfo} />} />
             <Route path="/htlcs" element={<HtlcsPage lnc={lnc} darkMode={darkMode} nodeChannels={nodeChannels} events={htlcEvents} isSubscribed={htlcSubscribed} subError={htlcError} />} />
             <Route path="/graph" element={<GraphAnalysisPage lnc={lnc} darkMode={darkMode} />} />
-            <Route path="/mission-control" element={<MissionControlPage lnc={lnc} darkMode={darkMode} />} />
+            <Route path="/mission-control" element={<MissionControlPage lnc={lnc} darkMode={darkMode} nodeChannels={nodeChannels} />} />
             <Route
               path="/taproot-assets"
               element={
@@ -1099,6 +1114,7 @@ function App() {
             darkMode={darkMode}
             lnc={lnc}
             onPeerAdded={listPeers}
+            onRefreshPeers={listPeers}
           />
 
           <footer

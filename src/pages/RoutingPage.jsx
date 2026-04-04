@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Sankey, Tooltip, ResponsiveContainer } from 'recharts';
 import SimpleChart from '../components/SimpleChart';
+import DemoGraphAnalysis from '../components/DemoGraphAnalysis';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -40,7 +41,8 @@ const getBucketKey = (tsSec, period) => {
     const d = new Date(tsSec * 1000);
     if (period === 'day') return `${d.getUTCHours().toString().padStart(2, '0')}:00`;
     if (period === 'week' || period === 'month') return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
-    if (period === 'year') return MONTHS[d.getUTCMonth()];
+    // For 'year', include the year suffix so two different Aprils don't collide
+    if (period === 'year') return `${MONTHS[d.getUTCMonth()]} '${String(d.getUTCFullYear()).slice(-2)}`;
     return `${MONTHS[d.getUTCMonth()]} '${String(d.getUTCFullYear()).slice(-2)}`;
 };
 
@@ -67,10 +69,8 @@ const prefillBuckets = (period, forwards) => {
     } else if (period === 'week' || period === 'month') {
         const cur = new Date(Date.UTC(startD.getUTCFullYear(), startD.getUTCMonth(), startD.getUTCDate()));
         while (cur <= endD) { map.set(`${cur.getUTCMonth() + 1}/${cur.getUTCDate()}`, 0); cur.setUTCDate(cur.getUTCDate() + 1); }
-    } else if (period === 'year') {
-        const cur = new Date(Date.UTC(startD.getUTCFullYear(), startD.getUTCMonth(), 1));
-        while (cur <= endD) { map.set(MONTHS[cur.getUTCMonth()], 0); cur.setUTCMonth(cur.getUTCMonth() + 1); }
     } else {
+        // 'year' and 'all' both use "Mon 'YY" format now
         const cur = new Date(Date.UTC(startD.getUTCFullYear(), startD.getUTCMonth(), 1));
         while (cur <= endD) {
             map.set(`${MONTHS[cur.getUTCMonth()]} '${String(cur.getUTCFullYear()).slice(-2)}`, 0);
@@ -80,7 +80,32 @@ const prefillBuckets = (period, forwards) => {
     return map;
 };
 
-const buildBuckets = (forwards, period, valueKey) => {
+// For groupBy === 'year': bucket by calendar year string
+const getBucketKeyYear = (tsSec) => String(new Date(tsSec * 1000).getUTCFullYear());
+
+const prefillBucketsYear = (forwards) => {
+    const map = new Map();
+    const nowSec = Math.floor(Date.now() / 1000);
+    let oldest = nowSec;
+    for (const f of forwards) {
+        const ts = Number(f.timestamp ?? 0);
+        if (ts > 0 && ts < oldest) oldest = ts;
+    }
+    const startYear = new Date(oldest * 1000).getUTCFullYear();
+    const endYear = new Date(nowSec * 1000).getUTCFullYear();
+    for (let y = startYear; y <= endYear; y++) map.set(String(y), 0);
+    return map;
+};
+
+const buildBuckets = (forwards, period, valueKey, groupBy) => {
+    if (groupBy === 'year') {
+        const map = prefillBucketsYear(forwards);
+        forwards.forEach((f) => {
+            const key = getBucketKeyYear(Number(f.timestamp ?? 0));
+            if (map.has(key)) map.set(key, map.get(key) + (Number(f[valueKey]) || 0));
+        });
+        return Array.from(map.entries()).map(([label, value]) => ({ label, value }));
+    }
     const map = prefillBuckets(period, forwards);
     forwards.forEach((f) => {
         const key = getBucketKey(Number(f.timestamp ?? 0), period);
@@ -89,7 +114,15 @@ const buildBuckets = (forwards, period, valueKey) => {
     return Array.from(map.entries()).map(([label, value]) => ({ label, value }));
 };
 
-const buildCountBuckets = (forwards, period) => {
+const buildCountBuckets = (forwards, period, groupBy) => {
+    if (groupBy === 'year') {
+        const map = prefillBucketsYear(forwards);
+        forwards.forEach((f) => {
+            const key = getBucketKeyYear(Number(f.timestamp ?? 0));
+            if (map.has(key)) map.set(key, map.get(key) + 1);
+        });
+        return Array.from(map.entries()).map(([label, value]) => ({ label, value }));
+    }
     const map = prefillBuckets(period, forwards);
     forwards.forEach((f) => {
         const key = getBucketKey(Number(f.timestamp ?? 0), period);
@@ -106,7 +139,7 @@ const CHART_TABS = [
     { key: 'count', label: '🔁 Forwards', color: '#10b981', type: 'bar' },
 ];
 
-const ChartPanel = ({ feeData, volData, countData, darkMode }) => {
+const ChartPanel = ({ feeData, volData, countData, darkMode, period, groupBy, onGroupByChange }) => {
     const [activeTab, setActiveTab] = useState('fees');
 
     const tabCfg = CHART_TABS.find((t) => t.key === activeTab);
@@ -129,33 +162,61 @@ const ChartPanel = ({ feeData, volData, countData, darkMode }) => {
         <div className="rounded-xl overflow-hidden transition-colors duration-300" style={cardStyle}>
             {/* Tab bar */}
             <div
-                className="flex items-center gap-1 px-4 pt-4 pb-0"
+                className="flex items-center justify-between px-4 pt-4 pb-0"
                 style={{ borderBottom: `1px solid ${darkMode ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}` }}
             >
-                {CHART_TABS.map((tab) => {
-                    const isActive = tab.key === activeTab;
-                    return (
-                        <button
-                            key={tab.key}
-                            onClick={() => setActiveTab(tab.key)}
-                            style={{
-                                padding: '8px 18px',
-                                fontSize: 13,
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                                border: 'none',
-                                background: 'transparent',
-                                color: isActive ? tab.color : 'var(--text-secondary)',
-                                borderBottom: isActive ? `2px solid ${tab.color}` : '2px solid transparent',
-                                marginBottom: -1,
-                                transition: 'all 0.18s',
-                                borderRadius: '4px 4px 0 0',
-                            }}
-                        >
-                            {tab.label}
-                        </button>
-                    );
-                })}
+                <div className="flex items-center gap-1">
+                    {CHART_TABS.map((tab) => {
+                        const isActive = tab.key === activeTab;
+                        return (
+                            <button
+                                key={tab.key}
+                                onClick={() => setActiveTab(tab.key)}
+                                style={{
+                                    padding: '8px 18px',
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    border: 'none',
+                                    background: 'transparent',
+                                    color: isActive ? tab.color : 'var(--text-secondary)',
+                                    borderBottom: isActive ? `2px solid ${tab.color}` : '2px solid transparent',
+                                    marginBottom: -1,
+                                    transition: 'all 0.18s',
+                                    borderRadius: '4px 4px 0 0',
+                                }}
+                            >
+                                {tab.label}
+                            </button>
+                        );
+                    })}
+                </div>
+                {/* Group-by toggle — only visible for 'all' period */}
+                {period === 'all' && (
+                    <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Group by:</span>
+                        <div className="flex rounded-lg overflow-hidden" style={{ border: `1px solid ${darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}` }}>
+                            <button
+                                onClick={() => onGroupByChange('month')}
+                                style={{
+                                    padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                    border: 'none', transition: 'all 0.18s',
+                                    background: groupBy === 'month' ? 'linear-gradient(135deg,#6366f1,#4f46e5)' : 'transparent',
+                                    color: groupBy === 'month' ? '#fff' : 'var(--text-secondary)',
+                                }}
+                            >Month</button>
+                            <button
+                                onClick={() => onGroupByChange('year')}
+                                style={{
+                                    padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                    border: 'none', transition: 'all 0.18s',
+                                    background: groupBy === 'year' ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'transparent',
+                                    color: groupBy === 'year' ? '#fff' : 'var(--text-secondary)',
+                                }}
+                            >Year</button>
+                        </div>
+                    </div>
+                )}
             </div>
             {/* Chart */}
             <div className="p-5">
@@ -295,6 +356,7 @@ const ROWS_PER_PAGE = 20;
 const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
     const [chanAliasMap, setChanAliasMap] = useState({});
     const [period, setPeriod] = useState('week');
+    const [groupBy, setGroupBy] = useState('month'); // 'month' | 'year'
     const [forwards, setForwards] = useState([]);
     const [payments, setPayments] = useState([]);
     const [onchainTxs, setOnchainTxs] = useState({ opens: [], closes: [] });
@@ -325,7 +387,7 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
             const fwdResp = await lnc.lnd.lightning.forwardingHistory({
                 start_time: startTime.toString(),
                 end_time: endTime.toString(),
-                num_max_events: 5000,
+                num_max_events: 15000,
             });
             const events = Array.isArray(fwdResp?.forwardingEvents) ? fwdResp.forwardingEvents : [];
             events.sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
@@ -504,14 +566,14 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
 
     // ── chart data ────────────────────────────────────────────────────────────
     const feeChartData = useMemo(
-        () => buildBuckets(normForwards.map((f) => ({ timestamp: f.timestamp, fee_msat: f.feeMsat })), period, 'fee_msat'),
-        [normForwards, period]
+        () => buildBuckets(normForwards.map((f) => ({ timestamp: f.timestamp, fee_msat: f.feeMsat })), period, 'fee_msat', period === 'all' ? groupBy : 'month'),
+        [normForwards, period, groupBy]
     );
     const volChartData = useMemo(
-        () => buildBuckets(normForwards.map((f) => ({ timestamp: f.timestamp, amt_in: f.amtIn })), period, 'amt_in'),
-        [normForwards, period]
+        () => buildBuckets(normForwards.map((f) => ({ timestamp: f.timestamp, amt_in: f.amtIn })), period, 'amt_in', period === 'all' ? groupBy : 'month'),
+        [normForwards, period, groupBy]
     );
-    const countChartData = useMemo(() => buildCountBuckets(normForwards, period), [normForwards, period]);
+    const countChartData = useMemo(() => buildCountBuckets(normForwards, period, period === 'all' ? groupBy : 'month'), [normForwards, period, groupBy]);
 
     // ── top routes ────────────────────────────────────────────────────────────
     const topRoutes = useMemo(() => {
@@ -650,9 +712,9 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
             {/* Header */}
             <div className="flex items-center justify-between flex-wrap gap-3">
                 <h2 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Routing Analytics</h2>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                     {PERIODS.map((p) => (
-                        <button key={p.key} style={btnStyle(period === p.key)} onClick={() => setPeriod(p.key)}>
+                        <button key={p.key} style={btnStyle(period === p.key)} onClick={() => { setPeriod(p.key); setGroupBy('month'); }}>
                             {p.label}
                         </button>
                     ))}
@@ -735,7 +797,7 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
                     />
 
                     {/* Charts with tabs */}
-                    <ChartPanel feeData={feeChartData} volData={volChartData} countData={countChartData} darkMode={darkMode} />
+                    <ChartPanel feeData={feeChartData} volData={volChartData} countData={countChartData} darkMode={darkMode} period={period} groupBy={groupBy} onGroupByChange={setGroupBy} />
 
                     {/* Top Routes */}
                     {topRoutes.length > 0 && (
@@ -838,6 +900,12 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
                                 >
                                     Sankey Visualization
                                 </button>
+                                <button
+                                    onClick={() => setAllForwardsTab('demo')}
+                                    className={`pb-3 font-semibold text-sm transition-colors border-b-2 ${allForwardsTab === 'demo' ? 'border-indigo-500 text-indigo-500' : 'border-transparent text-gray-400 hover:text-gray-300'}`}
+                                >
+                                    Graph Analysis
+                                </button>
                             </div>
                             <div className="flex items-center gap-3 mr-4 mb-2 mt-2">
                                 <span className="text-xs px-2 py-1 flex-shrink-0 rounded-full hidden sm:inline-block" style={{ backgroundColor: darkMode ? 'rgba(16,185,129,0.2)' : 'rgba(16,185,129,0.1)', color: '#10b981' }}>
@@ -902,7 +970,7 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
                                         </div>
                                     )}
                                 </>
-                            ) : (
+                            ) : allForwardsTab === 'sankey' ? (
                                 <div style={{ width: '100%', height: Math.max(500, (allForwardsSankeyData?.nodes?.length || 0) * 45), minHeight: 500, padding: 24, paddingRight: 48, paddingLeft: 48 }}>
                                     {!allForwardsSankeyData ? (
                                         <div className="w-full h-full flex items-center justify-center text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -922,6 +990,8 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
                                         </ResponsiveContainer>
                                     )}
                                 </div>
+                            ) : (
+                                <DemoGraphAnalysis darkMode={darkMode} forwards={normForwards} chanLabel={chanLabel} />
                             )}
                         </div>
                     </div>
