@@ -367,6 +367,8 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
     const [topRoutesSort, setTopRoutesSort] = useState('fee'); // 'fee', 'volume', 'count'
     const [allForwardsTab, setAllForwardsTab] = useState('table');
     const [allForwardsMetric, setAllForwardsMetric] = useState('volume'); // 'fee', 'volume', 'count'
+    const [filterChanIn, setFilterChanIn] = useState('');
+    const [filterChanOut, setFilterChanOut] = useState('');
 
     // ── fetch ─────────────────────────────────────────────────────────────────
     const fetchAll = useCallback(async (periodKey) => {
@@ -594,6 +596,27 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
         return entry?.alias || shortChan(chanId);
     };
 
+    const filteredForwards = useMemo(() => {
+        return normForwards.filter(f => {
+            if (filterChanIn && f.chanIdIn !== filterChanIn) return false;
+            if (filterChanOut && f.chanIdOut !== filterChanOut) return false;
+            return true;
+        });
+    }, [normForwards, filterChanIn, filterChanOut]);
+
+    const inChannelsList = useMemo(() => {
+        const s = new Set();
+        normForwards.forEach(f => { if (f.chanIdIn) s.add(f.chanIdIn); });
+        return Array.from(s).map(id => ({ id, label: chanLabel(id) })).sort((a,b) => a.label.localeCompare(b.label));
+    }, [normForwards, chanAliasMap]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const outChannelsList = useMemo(() => {
+        const s = new Set();
+        normForwards.forEach(f => { if (f.chanIdOut) s.add(f.chanIdOut); });
+        return Array.from(s).map(id => ({ id, label: chanLabel(id) })).sort((a,b) => a.label.localeCompare(b.label));
+    }, [normForwards, chanAliasMap]); // eslint-disable-line react-hooks/exhaustive-deps
+
+
     const topRoutesSankeyData = useMemo(() => {
         if (!topRoutes || topRoutes.length === 0) return null;
 
@@ -632,10 +655,10 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
     }, [topRoutes, chanAliasMap, topRoutesSort]);
 
     const allForwardsSankeyData = useMemo(() => {
-        if (!normForwards || normForwards.length === 0) return null;
+        if (!filteredForwards || filteredForwards.length === 0) return null;
 
         const map = new Map();
-        normForwards.forEach((f) => {
+        filteredForwards.forEach((f) => {
             const key = `${f.chanIdIn}→${f.chanIdOut}`;
             if (!map.has(key)) map.set(key, { chanIdIn: f.chanIdIn, chanIdOut: f.chanIdOut, count: 0, volume: 0, fee: 0 });
             const r = map.get(key);
@@ -675,11 +698,11 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
 
         if (nodes.length === 0 || links.length === 0) return null;
         return { nodes, links };
-    }, [normForwards, chanAliasMap, allForwardsMetric]);
+    }, [filteredForwards, chanAliasMap, allForwardsMetric]);
 
     // ── pagination ────────────────────────────────────────────────────────────
-    const totalPages = Math.ceil(normForwards.length / ROWS_PER_PAGE);
-    const pageRows = normForwards.slice(page * ROWS_PER_PAGE, (page + 1) * ROWS_PER_PAGE);
+    const totalPages = Math.ceil(filteredForwards.length / ROWS_PER_PAGE);
+    const pageRows = filteredForwards.slice(page * ROWS_PER_PAGE, (page + 1) * ROWS_PER_PAGE);
 
     // ── shared styles ─────────────────────────────────────────────────────────
     const cardStyle = {
@@ -908,8 +931,34 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
                                 </button>
                             </div>
                             <div className="flex items-center gap-3 mr-4 mb-2 mt-2">
+                                <select
+                                    value={filterChanIn}
+                                    onChange={(e) => { setFilterChanIn(e.target.value); setPage(0); }}
+                                    className="text-xs px-2 py-1.5 rounded-lg border outline-none focus:ring-1 focus:ring-indigo-500 max-w-[140px] truncate"
+                                    style={{
+                                        backgroundColor: darkMode ? '#1f2937' : '#f9fafb',
+                                        borderColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                                        color: 'var(--text-primary)'
+                                    }}
+                                >
+                                    <option value="">All Channels In</option>
+                                    {inChannelsList.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                                </select>
+                                <select
+                                    value={filterChanOut}
+                                    onChange={(e) => { setFilterChanOut(e.target.value); setPage(0); }}
+                                    className="text-xs px-2 py-1.5 rounded-lg border outline-none focus:ring-1 focus:ring-indigo-500 max-w-[140px] truncate"
+                                    style={{
+                                        backgroundColor: darkMode ? '#1f2937' : '#f9fafb',
+                                        borderColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                                        color: 'var(--text-primary)'
+                                    }}
+                                >
+                                    <option value="">All Channels Out</option>
+                                    {outChannelsList.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                                </select>
                                 <span className="text-xs px-2 py-1 flex-shrink-0 rounded-full hidden sm:inline-block" style={{ backgroundColor: darkMode ? 'rgba(16,185,129,0.2)' : 'rgba(16,185,129,0.1)', color: '#10b981' }}>
-                                    {normForwards.length} event{normForwards.length !== 1 ? 's' : ''}
+                                    {filteredForwards.length} event{filteredForwards.length !== 1 ? 's' : ''}
                                 </span>
                                 {allForwardsTab === 'table' && totalPages > 1 && (
                                     <div className="flex items-center gap-1 flex-shrink-0">
@@ -941,7 +990,7 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
                         <div className="p-0">
                             {allForwardsTab === 'table' ? (
                                 <>
-                                    {normForwards.length === 0 ? (
+                                    {filteredForwards.length === 0 ? (
                                         <p className="p-6 text-sm flex items-center justify-center h-full w-full" style={{ color: 'var(--text-secondary)' }}>No forwarding events found in the selected period.</p>
                                     ) : (
                                         <div style={{ overflowX: 'auto' }}>
@@ -991,7 +1040,7 @@ const RoutingPage = ({ lnc, darkMode, nodeChannels = [] }) => {
                                     )}
                                 </div>
                             ) : (
-                                <DemoGraphAnalysis darkMode={darkMode} forwards={normForwards} chanLabel={chanLabel} />
+                                <DemoGraphAnalysis darkMode={darkMode} forwards={filteredForwards} chanLabel={chanLabel} />
                             )}
                         </div>
                     </div>
